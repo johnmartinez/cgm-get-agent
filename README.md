@@ -1,29 +1,169 @@
 # CGM Get Agent
 
-An MCP (Model Context Protocol) server that connects LLM chatbots to a Dexcom G7 continuous glucose monitor. Ask Claude or ChatGPT about your glucose and get personalized guidance on meals and exercise.
+An MCP (Model Context Protocol) server that connects LLMs (Claude, ChatGPT) to a Dexcom G7 continuous glucose monitor. Ask Claude or ChatGPT about your glucose in natural language and get personalized health guidance on meals and exercise.
 
 ## What It Does
 
 - Retrieves real-time glucose readings from the Dexcom G7 via the Dexcom Developer API v3
 - Logs meals and exercise conversationally through the LLM
 - Correlates meals against post-meal glucose response curves
-- Rates meal impact on a 1-10 scale with actionable feedback
+- Rates meal impact on a 1–10 scale with actionable feedback
+- Works with Claude (via MCP/SSE or stdio) and ChatGPT (via REST shim)
 
 ## Stack
 
-- **Go** — single binary, single container
-- **MCP** — primary protocol (SSE + stdio transports), with a REST shim for OpenAI function calling
-- **Dexcom API v3** — OAuth2 + EGV/event data from G7
-- **SQLite** — local storage for meals, exercise, and glucose cache
-- **Docker** — runs on macOS/Apple Silicon via Colima
+- **Go 1.22** — single binary, CGO for SQLite
+- **MCP** — primary protocol (`github.com/modelcontextprotocol/go-sdk/mcp`), SSE + stdio transports
+- **REST shim** — OpenAI function-calling compatibility at `/v1/tools/invoke`
+- **Dexcom API v3** — OAuth2, EGV/event data from Dexcom G7
+- **SQLite** — local storage for meals, exercise, and glucose cache (`mattn/go-sqlite3`)
+- **AES-256-GCM** — OAuth tokens encrypted at rest
+- **Docker + Colima** — arm64-native, runs on macOS/Apple Silicon
 
-## Getting Started
+## Prerequisites
 
-See [SPEC.md](SPEC.md) for the full project specification. Architecture and workflow diagrams are in `docs/`.
+- macOS (Apple Silicon recommended)
+- [Colima](https://github.com/abiosoft/colima) + Docker CLI (`brew install colima docker docker-compose`)
+- A [Dexcom Developer account](https://developer.dexcom.com/) — create an app to get `client_id` and `client_secret`
+- Go 1.22+ (for local development only; not needed for Docker builds)
 
-## Status
+## Quick Start
 
-Under active development. Spec-driven build using Claude Code.
+### 1. Clone and configure
+
+```bash
+git clone https://github.com/yourusername/cgm-get-agent
+cd cgm-get-agent
+
+cp .env.example .env
+```
+
+Edit `.env` with your Dexcom credentials and a generated encryption key:
+
+```bash
+# Generate a 32-byte AES encryption key
+openssl rand -hex 32
+# Paste the output into .env as GA_ENCRYPTION_KEY
+```
+
+### 2. Start with Docker Compose
+
+```bash
+colima start --arch aarch64 --vm-type vz  # start Colima (first time)
+docker compose up --build
+```
+
+The server starts on `http://localhost:8080`.
+
+### 3. Authorize Dexcom (one-time)
+
+Open in your browser:
+
+```
+http://localhost:8080/oauth/start
+```
+
+You'll be redirected to Dexcom to log in and grant HIPAA consent. After completing the flow, tokens are encrypted and stored locally. You will not need to repeat this unless tokens are revoked.
+
+Verify auth status:
+
+```bash
+curl http://localhost:8080/health
+# {"status":"ok","dexcom_auth":"valid","db_accessible":true,"uptime_seconds":14}
+```
+
+### 4. Connect to Claude
+
+**Option A — SSE (recommended for claude.ai or Claude desktop):**
+
+```bash
+claude mcp add --transport sse cgm-get-agent http://localhost:8080/mcp
+```
+
+**Option B — stdio (for Claude Code CLI, lower latency):**
+
+```bash
+claude mcp add cgm-get-agent -- docker exec -i cgm-get-agent cgm-get-agent serve --transport stdio
+```
+
+Now ask Claude: *"What's my glucose right now?"*
+
+## Environment Variables
+
+| Variable | Required | Default | Description |
+|---|---|---|---|
+| `GA_DEXCOM_CLIENT_ID` | **Yes** | — | Dexcom developer app client ID |
+| `GA_DEXCOM_CLIENT_SECRET` | **Yes** | — | Dexcom developer app client secret |
+| `GA_ENCRYPTION_KEY` | **Yes** | — | 32-byte hex-encoded AES-256 key |
+| `GA_DEXCOM_ENV` | No | `sandbox` | `sandbox` or `production` |
+| `GA_MCP_TRANSPORT` | No | `sse` | `sse` or `stdio` |
+| `GA_SERVER_PORT` | No | `8080` | HTTP listen port |
+| `GA_DB_PATH` | No | `/data/data.db` | SQLite database path |
+| `GA_TOKEN_PATH` | No | `/data/tokens.enc` | Encrypted token file path |
+| `GA_CONFIG_PATH` | No | `/data/config.yaml` | Optional YAML config override |
+
+See `.env.example` for a template.
+
+## Available MCP Tools
+
+| Tool | Description |
+|---|---|
+| `get_current_glucose` | Current reading + trend + optional history window |
+| `get_glucose_history` | EGV records for a date range (max 30-day window) |
+| `get_trend` | Lightweight trend arrow and rate of change |
+| `log_meal` | Log a meal with description and estimated macros |
+| `log_exercise` | Log an exercise session with type, duration, intensity |
+| `rate_meal_impact` | Analyze glucose impact of a logged meal; 1–10 rating |
+
+## Dexcom Sandbox (No CGM Required)
+
+For development, use `GA_DEXCOM_ENV=sandbox` (default). The Dexcom sandbox provides simulated G7 data. Sandbox login does not require a real Dexcom account password.
+
+## Production Switch
+
+```bash
+# In .env:
+GA_DEXCOM_ENV=production
+
+docker compose up --build
+open http://localhost:8080/oauth/start   # re-authorize with real credentials
+```
+
+## Data & Privacy
+
+- All health data stays on your local machine.
+- OAuth tokens are AES-256-GCM encrypted in `~/.cgm-get-agent/tokens.enc`.
+- The host volume `~/.cgm-get-agent` should be `chmod 700`.
+- No data is transmitted to any third party other than the Dexcom API.
+- Never expose port 8080 directly to the internet. Use Tailscale or WireGuard for remote access.
+
+## Development
+
+```bash
+# Run tests
+go test ./...
+
+# Run locally (no Docker)
+GA_DEXCOM_ENV=sandbox \
+GA_ENCRYPTION_KEY=$(openssl rand -hex 32) \
+GA_MCP_TRANSPORT=sse \
+go run ./cmd/server
+
+# Build binary
+CGO_ENABLED=1 go build -o cgm-get-agent ./cmd/server
+```
+
+## Architecture
+
+See `docs/architecture.mermaid` and `docs/workflow.mermaid` for system and sequence diagrams.
+
+Full specification: [SPEC.md](SPEC.md)
+
+Implementation instructions: [CLAUDE.md](CLAUDE.md)
+
+## Project Status
+
+Active development — spec-driven build. See `CLAUDE.md` for the phased implementation plan and progress.
 
 ## License
 

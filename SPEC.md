@@ -455,26 +455,26 @@ Stage 1: golang:1.22-alpine AS builder
     - Install: gcc, musl-dev, sqlite-dev (CGO required for mattn/go-sqlite3)
     - WORKDIR /src
     - Copy go.mod, go.sum → go mod download
-    - Copy source → CGO_ENABLED=1 GOOS=linux go build -o /glucose-advisor ./cmd/server
+    - Copy source → CGO_ENABLED=1 GOOS=linux go build -o /cgm-get-agent ./cmd/server
 
 Stage 2: alpine:3.19
     - Install: ca-certificates, sqlite-libs, wget (for healthcheck)
     - Copy binary from builder
     - EXPOSE 8080
-    - ENTRYPOINT ["glucose-advisor", "serve"]
+    - ENTRYPOINT ["cgm-get-agent", "serve"]
 ```
 
 ### 5.2 Docker Compose
 
 ```yaml
 services:
-  glucose-advisor:
+  cgm-get-agent:
     build: .
-    container_name: glucose-advisor
+    container_name: cgm-get-agent
     ports:
       - "8080:8080"
     volumes:
-      - ~/.glucose-advisor:/data
+      - ~/.cgm-get-agent:/data
     env_file:
       - .env
     restart: unless-stopped
@@ -484,10 +484,10 @@ services:
       timeout: 5s
       retries: 3
     networks:
-      - glucose-advisor-net
+      - cgm-get-agent-net
 
 networks:
-  glucose-advisor-net:
+  cgm-get-agent-net:
     driver: bridge
 ```
 
@@ -714,10 +714,10 @@ open http://localhost:8080/oauth/start
 
 # Connect Claude Code (stdio mode)
 # For local dev, run the binary directly with GA_MCP_TRANSPORT=stdio
-claude mcp add glucose-advisor -- docker exec -i glucose-advisor glucose-advisor serve --transport stdio
+claude mcp add cgm-get-agent -- docker exec -i cgm-get-agent cgm-get-agent serve --transport stdio
 
 # Or connect Claude Code to the SSE endpoint
-claude mcp add --transport sse glucose-advisor http://localhost:8080/mcp
+claude mcp add --transport sse cgm-get-agent http://localhost:8080/mcp
 ```
 
 ### 8.2 Testing with Dexcom Sandbox
@@ -741,7 +741,7 @@ open http://localhost:8080/oauth/start
 ## 9. Security Considerations
 
 - **Token encryption**: All Dexcom OAuth tokens are AES-256-GCM encrypted at rest in /data/tokens.enc. The encryption key is provided via environment variable, never baked into the image.
-- **Volume permissions**: ~/.glucose-advisor on host should be mode 0700. Contains PHI-adjacent health data.
+- **Volume permissions**: ~/.cgm-get-agent on host should be mode 0700. Contains PHI-adjacent health data.
 - **No inbound internet**: Container binds to localhost:8080 only. For remote access (e.g., iPad), use Tailscale, WireGuard, or mTLS reverse proxy. Never expose MCP endpoint raw.
 - **Dexcom HIPAA**: The Dexcom OAuth flow includes a HIPAA authorization screen. User must consent. This consent is per-authorization; revoking access is done at dexcom.com account settings.
 - **No PHI in logs**: Do not log glucose values, meal descriptions, or any health data at INFO level. DEBUG level may include EGV values for troubleshooting but should be disabled in normal operation.

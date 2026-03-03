@@ -11,7 +11,7 @@ graph TB
     subgraph docker["DOCKER (Colima / arm64)"]
         direction TB
 
-        subgraph container["glucose-advisor container"]
+        subgraph container["cgm-get-agent container"]
             direction TB
 
             subgraph transport["Transport Layer"]
@@ -44,7 +44,7 @@ graph TB
             end
         end
 
-        subgraph volume["Host Volume: ~/.glucose-advisor"]
+        subgraph volume["Host Volume: ~/.cgm-get-agent"]
             direction LR
             db["data.db<br/>(SQLite)"]
             tokens["tokens.enc<br/>(encrypted OAuth tokens)"]
