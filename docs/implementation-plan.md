@@ -19,16 +19,19 @@ This document memorializes the phased build plan for the `cgm-get-agent` project
 
 ## Token Budget
 
-| Phase | Branch | Est. Output Tokens | Status |
-|---|---|---|---|
-| CLAUDE.md + README.md | `main` | ~2,000 | ✅ Complete — PR #1 |
-| 1 — Scaffolding | `feat/scaffolding` | ~3,000 | ✅ Complete — PR #2 |
-| 2 — Core Packages | `feat/core-packages` | ~10,000 | ✅ Complete — PR #3 |
-| 3 — Dexcom Integration | `feat/dexcom` | ~8,000 | ✅ Complete — PR #5 |
-| 4 — Glucose Analyzer | `feat/analyzer` | ~5,000 | ⬜ Pending |
-| 5 — MCP Server + REST + Entrypoint | `feat/mcp-server` | ~8,000 | ⬜ Pending |
-| 6 — Test Harnesses | `feat/tests` | ~8,000 | ⬜ Pending |
-| **Total** | | **~44,000** | |
+> **Actual output tokens** are estimated from git diff size (characters ÷ 4).
+> This reflects code/text generated per phase and does not include input or context tokens.
+
+| Phase | Branch | Est. Output Tokens | Actual Output Tokens | Status |
+|---|---|---|---|---|
+| CLAUDE.md + README.md | `main` | ~2,000 | ~8,300 | ✅ [Direct to main](https://github.com/johnmartinez/cgm-get-agent/commit/743405a) |
+| 1 — Scaffolding | `feat/scaffolding` | ~3,000 | ~1,100 | ✅ [PR #2](https://github.com/johnmartinez/cgm-get-agent/pull/2) |
+| 2 — Core Packages | `feat/core-packages` | ~10,000 | ~12,100 | ✅ [PR #3](https://github.com/johnmartinez/cgm-get-agent/pull/3) |
+| 3 — Dexcom Integration | `feat/dexcom` | ~8,000 | ~10,300 | ✅ [PR #5](https://github.com/johnmartinez/cgm-get-agent/pull/5) |
+| 4 — Glucose Analyzer | `feat/analyzer` | ~5,000 | — | ⬜ Pending |
+| 5 — MCP Server + REST + Entrypoint | `feat/mcp-server` | ~8,000 | — | ⬜ Pending |
+| 6 — Test Harnesses | `feat/tests` | ~8,000 | — | ⬜ Pending |
+| **Total** | | **~44,000** | **~31,800 to date** | |
 
 ---
 
