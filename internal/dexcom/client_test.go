@@ -325,6 +325,155 @@ func TestGetDevices_Success(t *testing.T) {
 	}
 }
 
+// --- GetCalibrations ---
+
+func TestGetCalibrations_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		base := time.Date(2026, 3, 3, 8, 0, 0, 0, time.UTC)
+		resp := calibrationsResponse{Calibrations: []apiCalibration{
+			{
+				RecordID:              "cal-1",
+				SystemTime:            base.Format(dexcomTimeFormat),
+				DisplayTime:           base.Format(dexcomTimeFormat),
+				Value:                 110,
+				Unit:                  "mg/dL",
+				TransmitterID:         "tx-abc",
+				TransmitterGeneration: "g7",
+				DisplayDevice:         "iOS",
+				DisplayApp:            "G7",
+			},
+		}}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	client, _ := newTestClient(t, srv)
+	cals, err := client.GetCalibrations(context.Background(), time.Now().Add(-time.Hour), time.Now())
+	if err != nil {
+		t.Fatalf("GetCalibrations: %v", err)
+	}
+	if len(cals) != 1 {
+		t.Fatalf("expected 1 calibration, got %d", len(cals))
+	}
+	if cals[0].Value != 110 {
+		t.Errorf("calibration Value: got %d, want 110", cals[0].Value)
+	}
+	if cals[0].TransmitterGeneration != "g7" {
+		t.Errorf("TransmitterGeneration: got %q, want g7", cals[0].TransmitterGeneration)
+	}
+}
+
+func TestGetCalibrations_WindowTooLarge(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("server should not be called for oversized window")
+	}))
+	defer srv.Close()
+
+	client, _ := newTestClient(t, srv)
+	_, err := client.GetCalibrations(context.Background(), time.Now(), time.Now().Add(31*24*time.Hour))
+	if _, ok := err.(*WindowTooLargeError); !ok {
+		t.Errorf("expected *WindowTooLargeError, got %T: %v", err, err)
+	}
+}
+
+// --- GetAlerts ---
+
+func TestGetAlerts_Success(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		base := time.Date(2026, 3, 3, 14, 0, 0, 0, time.UTC)
+		resp := alertsResponse{Alerts: []apiAlert{
+			{
+				RecordID:    "alert-1",
+				SystemTime:  base.Format(dexcomTimeFormat),
+				DisplayTime: base.Format(dexcomTimeFormat),
+				AlertName:   "high",
+				AlertState:  "triggered",
+			},
+			{
+				RecordID:    "alert-2",
+				SystemTime:  base.Add(10 * time.Minute).Format(dexcomTimeFormat),
+				DisplayTime: base.Add(10 * time.Minute).Format(dexcomTimeFormat),
+				AlertName:   "high",
+				AlertState:  "acknowledged",
+			},
+		}}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	client, _ := newTestClient(t, srv)
+	alerts, err := client.GetAlerts(context.Background(), time.Now().Add(-time.Hour), time.Now())
+	if err != nil {
+		t.Fatalf("GetAlerts: %v", err)
+	}
+	if len(alerts) != 2 {
+		t.Fatalf("expected 2 alerts, got %d", len(alerts))
+	}
+	if alerts[0].AlertName != types.AlertTypeHigh {
+		t.Errorf("AlertName: got %q, want high", alerts[0].AlertName)
+	}
+	if alerts[0].AlertState != types.AlertStateTriggered {
+		t.Errorf("AlertState: got %q, want triggered", alerts[0].AlertState)
+	}
+	if alerts[1].AlertState != types.AlertStateAcknowledged {
+		t.Errorf("AlertState[1]: got %q, want acknowledged", alerts[1].AlertState)
+	}
+}
+
+func TestGetAlerts_WindowTooLarge(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("server should not be called for oversized window")
+	}))
+	defer srv.Close()
+
+	client, _ := newTestClient(t, srv)
+	_, err := client.GetAlerts(context.Background(), time.Now(), time.Now().Add(31*24*time.Hour))
+	if _, ok := err.(*WindowTooLargeError); !ok {
+		t.Errorf("expected *WindowTooLargeError, got %T: %v", err, err)
+	}
+}
+
+// --- GetEvents with EventSubType ---
+
+func TestGetEvents_WithSubType(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		base := time.Date(2026, 3, 3, 12, 0, 0, 0, time.UTC)
+		subType := "rapidActing"
+		insulinVal := 4.5
+		resp := eventsResponse{Events: []apiEvent{
+			{
+				RecordID:     "ev-insulin",
+				SystemTime:   base.Format(dexcomTimeFormat),
+				DisplayTime:  base.Format(dexcomTimeFormat),
+				EventType:    "insulin",
+				EventSubType: &subType,
+				Value:        &insulinVal,
+				Unit:         "units",
+			},
+		}}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer srv.Close()
+
+	client, _ := newTestClient(t, srv)
+	events, err := client.GetEvents(context.Background(), time.Now().Add(-time.Hour), time.Now())
+	if err != nil {
+		t.Fatalf("GetEvents: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(events))
+	}
+	if events[0].EventSubType == nil {
+		t.Fatal("expected EventSubType to be set")
+	}
+	if *events[0].EventSubType != types.EventSubTypeInsulinRapidActing {
+		t.Errorf("EventSubType: got %q, want rapidActing", *events[0].EventSubType)
+	}
+}
+
 // --- Error type checks ---
 
 func TestBaseURL(t *testing.T) {

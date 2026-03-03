@@ -30,7 +30,8 @@ Canonical spec: `SPEC.md`. This file is the source of truth. Never deviate from 
 - All packages must have `_test.go` files covering core logic.
 - `go vet ./...` must pass before any commit.
 - No `panic()` in production paths — return errors.
-- Handle the single-use refresh_token atomically (see Scenario 5 in SPEC.md).
+- Handle the single-use refresh_token atomically (see Scenario 8 in SPEC.md).
+- Dexcom API v3 is **read-only**: no POST/DELETE for events, calibrations, or any data endpoint.
 
 ---
 
@@ -63,18 +64,19 @@ Estimated tokens: ~10,000
 
 ### Phase 3 — Dexcom Integration (branch: `feat/dexcom`)
 Build order:
-1. `internal/dexcom/types.go` — all types from SPEC §2.1
+1. `internal/dexcom/types.go` — all types from SPEC §2.1, API envelopes for all 6 endpoints
 2. `internal/dexcom/oauth.go` — OAuth2 lifecycle: `/oauth/start`, `/callback`, `refresh_token_if_needed`, `get_valid_token`
-3. `internal/dexcom/client.go` — `get_egvs`, `get_events`, `get_data_range`, `get_devices`
-4. Unit tests with httptest mock server for Dexcom API
+3. `internal/dexcom/client.go` — all 6 GET endpoints: `get_egvs`, `get_events`, `get_calibrations`, `get_alerts`, `get_data_range`, `get_devices`
+4. Unit tests with httptest mock server for all endpoints
 
 Key constraints:
+- Dexcom API v3 is **read-only** — no POST/DELETE for any data endpoint
 - refresh_token is single-use — capture new one from every refresh response
 - Token file write must be atomic (write temp file, rename)
-- 30-day max window validation in `get_egvs`
+- 30-day max window validation in `get_egvs`, `get_events`, `get_calibrations`, `get_alerts`
 - CSRF state stored in server-side map (sync.Map), validated in callback
 
-Estimated tokens: ~8,000
+Estimated tokens: ~10,000 (6 endpoints + full test coverage)
 
 ### Phase 4 — Glucose Analyzer (branch: `feat/analyzer`)
 File: `internal/analyzer/glucose.go`
@@ -90,9 +92,13 @@ Estimated tokens: ~5,000
 ### Phase 5 — MCP Server + REST Shim + Entrypoint (branch: `feat/mcp-server`)
 Files:
 1. `internal/mcp/server.go` — MCP server setup, transport selection (SSE vs stdio), tool registration
-2. `internal/mcp/tools.go` — 6 tool handler functions wiring everything together
+2. `internal/mcp/tools.go` — **11 tool handler functions** wiring everything together
 3. `internal/rest/handler.go` — POST /v1/tools/invoke, GET /health
 4. `cmd/server/main.go` — parse flags/env, wire all dependencies, start server
+
+The 11 MCP tools (see SPEC §3.1):
+- Dexcom reads (8): `get_current_glucose`, `get_glucose_history`, `get_trend`, `get_dexcom_events`, `get_calibrations`, `get_alerts`, `get_devices`, `get_data_range`
+- Local SQLite (3): `log_meal`, `log_exercise`, `rate_meal_impact`
 
 MCP SDK: `github.com/modelcontextprotocol/go-sdk/mcp`
 Transport: `GA_MCP_TRANSPORT=sse|stdio` (default: sse)
@@ -102,19 +108,22 @@ Tool error format:
 {"error": "DexcomAuthError", "message": "...", "retriable": false}
 ```
 
-Estimated tokens: ~8,000
+Estimated tokens: ~12,000
 
 ### Phase 6 — Test Harnesses (branch: `feat/tests`)
-Scenario-based integration tests from SPEC §7:
-1. `Scenario 1: Simple Glucose Check` — mock Dexcom, verify GlucoseSnapshot shape
-2. `Scenario 2: Meal Logging + Glucose Context` — verify SQLite insert + glucose fetch
-3. `Scenario 3: Meal Impact Rating` — verify MealImpactAssessment with known EGV curve
-4. `Scenario 4: Exercise + Glucose Correlation` — verify exercise logging + history
-5. `Scenario 5: OAuth Token Refresh` — verify atomic token swap, old token gone
-6. `Scenario 6: Graceful Degradation` — mock Dexcom 503, verify cache fallback
-7. `Scenario 7: First-Time OAuth Setup` — full flow with httptest
+Scenario-based integration tests from SPEC §7 (10 scenarios):
+1. Simple Glucose Check — mock Dexcom EGVs, verify GlucoseSnapshot shape
+2. Meal Logging + Glucose Context — verify SQLite insert + glucose fetch
+3. Meal Impact Rating — verify MealImpactAssessment with known EGV curve
+4. Exercise + Glucose Correlation — verify exercise logging + history
+5. Reading Dexcom App Events — mock events endpoint, verify DexcomEvent list
+6. Alert History Review — mock alerts endpoint, verify AlertRecord list
+7. Fingerstick Calibration Review — mock calibrations endpoint, verify CalibrationRecord list
+8. OAuth Token Refresh — verify atomic token swap, old token gone
+9. Graceful Degradation — mock Dexcom 503, verify cache fallback
+10. First-Time OAuth Setup — full flow with httptest
 
-Estimated tokens: ~8,000
+Estimated tokens: ~10,000
 
 ---
 
@@ -122,14 +131,15 @@ Estimated tokens: ~8,000
 
 | Phase | Branch | Est. Tokens |
 |-------|--------|-------------|
+| CLAUDE.md + README | main | 2,000 |
 | 1 Scaffolding | feat/scaffolding | 3,000 |
 | 2 Core Packages | feat/core-packages | 10,000 |
-| 3 Dexcom Integration | feat/dexcom | 8,000 |
+| 3 Dexcom Integration | feat/dexcom | 10,000 |
 | 4 Glucose Analyzer | feat/analyzer | 5,000 |
-| 5 MCP Server | feat/mcp-server | 8,000 |
-| 6 Test Harnesses | feat/tests | 8,000 |
-| CLAUDE.md + README | main | 2,000 |
-| **Total** | | **~44,000** |
+| scope update | fix/scope-update | ~3,000 |
+| 5 MCP Server (11 tools) | feat/mcp-server | 12,000 |
+| 6 Test Harnesses (10 scenarios) | feat/tests | 10,000 |
+| **Total** | | **~55,000** |
 
 Context window budget per phase: keep each branch under ~30k output tokens.
 
@@ -198,9 +208,11 @@ OAuth endpoints (both envs):
 - Auth: `{base}/v3/oauth2/login`
 - Token: `{base}/v3/oauth2/token`
 
-Data endpoints:
+Data endpoints (all GET, all read-only):
 - EGVs: `{base}/v3/users/self/egvs`
 - Events: `{base}/v3/users/self/events`
+- Calibrations: `{base}/v3/users/self/calibrations`
+- Alerts: `{base}/v3/users/self/alerts`
 - Data range: `{base}/v3/users/self/dataRange`
 - Devices: `{base}/v3/users/self/devices`
 
@@ -235,7 +247,7 @@ Use a `migrations` table. On startup:
 
 ---
 
-## Graceful Degradation (Scenario 6)
+## Graceful Degradation (Scenario 9)
 
 In `get_current_glucose` tool handler:
 1. Try Dexcom API

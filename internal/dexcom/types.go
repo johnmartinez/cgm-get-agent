@@ -111,6 +111,38 @@ type apiEvent struct {
 	Unit         string   `json:"unit"`
 }
 
+// calibrationsResponse is the JSON envelope from GET /v3/users/self/calibrations.
+type calibrationsResponse struct {
+	Calibrations []apiCalibration `json:"calibrations"`
+}
+
+// apiCalibration is the raw JSON shape of a single calibration record from Dexcom.
+type apiCalibration struct {
+	RecordID              string  `json:"recordId"`
+	SystemTime            string  `json:"systemTime"`
+	DisplayTime           string  `json:"displayTime"`
+	Value                 int     `json:"value"`
+	Unit                  string  `json:"unit"`
+	TransmitterID         string  `json:"transmitterId"`
+	TransmitterGeneration string  `json:"transmitterGeneration"`
+	DisplayDevice         string  `json:"displayDevice"`
+	DisplayApp            string  `json:"displayApp"`
+}
+
+// alertsResponse is the JSON envelope from GET /v3/users/self/alerts.
+type alertsResponse struct {
+	Alerts []apiAlert `json:"alerts"`
+}
+
+// apiAlert is the raw JSON shape of a single alert event from Dexcom.
+type apiAlert struct {
+	RecordID    string `json:"recordId"`
+	SystemTime  string `json:"systemTime"`
+	DisplayTime string `json:"displayTime"`
+	AlertName   string `json:"alertName"`
+	AlertState  string `json:"alertState"`
+}
+
 // dataRangeResponse is the JSON envelope from GET /v3/users/self/dataRange.
 type dataRangeResponse struct {
 	Calibrations timeRangeJSON `json:"calibrations"`

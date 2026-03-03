@@ -106,6 +106,54 @@ func (c *Client) GetDevices(ctx context.Context) ([]DeviceRecord, error) {
 	return resp.Devices, nil
 }
 
+// GetCalibrations returns fingerstick calibration records for the given time window.
+// Calibrations are read-only via the Dexcom API; they originate from the G7 app or receiver.
+func (c *Client) GetCalibrations(ctx context.Context, start, end time.Time) ([]types.CalibrationRecord, error) {
+	if end.Sub(start) > maxWindowDays*24*time.Hour {
+		days := int(end.Sub(start).Hours() / 24)
+		return nil, &WindowTooLargeError{RequestedDays: days}
+	}
+
+	var resp calibrationsResponse
+	if err := c.doJSON(ctx, c.baseURL+"/v3/users/self/calibrations?"+dateParams(start, end).Encode(), &resp); err != nil {
+		return nil, err
+	}
+
+	records := make([]types.CalibrationRecord, 0, len(resp.Calibrations))
+	for _, cal := range resp.Calibrations {
+		r, err := convertCalibration(cal)
+		if err != nil {
+			return nil, fmt.Errorf("dexcom: converting calibration: %w", err)
+		}
+		records = append(records, r)
+	}
+	return records, nil
+}
+
+// GetAlerts returns alert events (high, low, urgentLow, rise, fall, etc.) for the given window.
+// Alerts are fired by the G7 sensor and are read-only via the Dexcom API.
+func (c *Client) GetAlerts(ctx context.Context, start, end time.Time) ([]types.AlertRecord, error) {
+	if end.Sub(start) > maxWindowDays*24*time.Hour {
+		days := int(end.Sub(start).Hours() / 24)
+		return nil, &WindowTooLargeError{RequestedDays: days}
+	}
+
+	var resp alertsResponse
+	if err := c.doJSON(ctx, c.baseURL+"/v3/users/self/alerts?"+dateParams(start, end).Encode(), &resp); err != nil {
+		return nil, err
+	}
+
+	records := make([]types.AlertRecord, 0, len(resp.Alerts))
+	for _, a := range resp.Alerts {
+		r, err := convertAlert(a)
+		if err != nil {
+			return nil, fmt.Errorf("dexcom: converting alert: %w", err)
+		}
+		records = append(records, r)
+	}
+	return records, nil
+}
+
 // doJSON performs a GET with a Bearer token and JSON-decodes the response into dst.
 // Returns AuthError on 401, APIError on other non-2xx responses.
 func (c *Client) doJSON(ctx context.Context, endpoint string, dst any) error {
@@ -189,13 +237,54 @@ func convertEvent(e apiEvent) (types.DexcomEvent, error) {
 		return types.DexcomEvent{}, fmt.Errorf("parsing event systemTime %q: %w", e.SystemTime, err)
 	}
 	disp, _ := time.Parse(dexcomTimeFormat, e.DisplayTime)
+
+	var subType *types.EventSubType
+	if e.EventSubType != nil {
+		st := types.EventSubType(*e.EventSubType)
+		subType = &st
+	}
+
 	return types.DexcomEvent{
 		RecordID:     e.RecordID,
 		SystemTime:   sys,
 		DisplayTime:  disp,
 		EventType:    types.EventType(e.EventType),
-		EventSubType: e.EventSubType,
+		EventSubType: subType,
 		Value:        e.Value,
 		Unit:         e.Unit,
+	}, nil
+}
+
+func convertCalibration(c apiCalibration) (types.CalibrationRecord, error) {
+	sys, err := time.Parse(dexcomTimeFormat, c.SystemTime)
+	if err != nil {
+		return types.CalibrationRecord{}, fmt.Errorf("parsing calibration systemTime %q: %w", c.SystemTime, err)
+	}
+	disp, _ := time.Parse(dexcomTimeFormat, c.DisplayTime)
+	return types.CalibrationRecord{
+		RecordID:              c.RecordID,
+		SystemTime:            sys,
+		DisplayTime:           disp,
+		Value:                 c.Value,
+		Unit:                  c.Unit,
+		TransmitterID:         c.TransmitterID,
+		TransmitterGeneration: c.TransmitterGeneration,
+		DisplayDevice:         c.DisplayDevice,
+		DisplayApp:            c.DisplayApp,
+	}, nil
+}
+
+func convertAlert(a apiAlert) (types.AlertRecord, error) {
+	sys, err := time.Parse(dexcomTimeFormat, a.SystemTime)
+	if err != nil {
+		return types.AlertRecord{}, fmt.Errorf("parsing alert systemTime %q: %w", a.SystemTime, err)
+	}
+	disp, _ := time.Parse(dexcomTimeFormat, a.DisplayTime)
+	return types.AlertRecord{
+		RecordID:    a.RecordID,
+		SystemTime:  sys,
+		DisplayTime: disp,
+		AlertName:   types.AlertType(a.AlertName),
+		AlertState:  types.AlertState(a.AlertState),
 	}, nil
 }
