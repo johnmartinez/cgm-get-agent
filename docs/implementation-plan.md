@@ -29,9 +29,10 @@ This document memorializes the phased build plan for the `cgm-get-agent` project
 | 2 — Core Packages | `feat/core-packages` | ~10,000 | ~12,100 | ✅ [PR #3](https://github.com/johnmartinez/cgm-get-agent/pull/3) |
 | 3 — Dexcom Integration | `feat/dexcom` | ~8,000 | ~10,300 | ✅ [PR #5](https://github.com/johnmartinez/cgm-get-agent/pull/5) |
 | 4 — Glucose Analyzer | `feat/analyzer` | ~5,000 | ~5,500 | ✅ [PR #8](https://github.com/johnmartinez/cgm-get-agent/pull/8) |
-| 5 — MCP Server + REST + Entrypoint | `feat/mcp-server` | ~8,000 | — | ⬜ Pending |
-| 6 — Test Harnesses | `feat/tests` | ~8,000 | — | ⬜ Pending |
-| **Total** | | **~44,000** | **~31,800 to date** | |
+| Scope Update (6→11 tools, calibrations + alerts) | `fix/scope-update` | ~3,000 | — | 🔄 In Progress |
+| 5 — MCP Server + REST + Entrypoint (11 tools) | `feat/mcp-server` | ~12,000 | — | ⬜ Pending |
+| 6 — Test Harnesses (10 scenarios) | `feat/tests` | ~10,000 | — | ⬜ Pending |
+| **Total** | | **~55,000** | **~37,300 to date** | |
 
 ---
 
@@ -188,21 +189,36 @@ Post-meal window: 30–180 minutes. Exercise in the same window produces an `Exe
 
 **Branch:** `feat/mcp-server`
 
-**Goal:** Runnable server. All 6 MCP tools registered. REST shim operational. Health endpoint live.
+**Goal:** Runnable server. All 11 MCP tools registered. REST shim operational. Health endpoint live.
 
 ### Files
 
 | File | Key Responsibilities |
 |---|---|
-| `internal/mcp/server.go` | Create MCP server; register all 6 tools; select SSE vs stdio transport from `GA_MCP_TRANSPORT` |
-| `internal/mcp/tools.go` | 6 handler functions: `handleGetCurrentGlucose`, `handleGetGlucoseHistory`, `handleGetTrend`, `handleLogMeal`, `handleLogExercise`, `handleRateMealImpact` |
+| `internal/mcp/server.go` | Create MCP server; register all 11 tools; select SSE vs stdio transport from `GA_MCP_TRANSPORT` |
+| `internal/mcp/tools.go` | 11 handler functions (see list below) |
 | `internal/rest/handler.go` | `POST /v1/tools/invoke` (routes to same tool functions); `GET /health` |
 | `cmd/server/main.go` | Parse env/flags; construct Config; open Store; create DexcomClient; create MCP server; register OAuth routes; start HTTP listener |
+
+### 11 Tool Handlers
+
+| Handler | Tool Name | Source |
+|---|---|---|
+| `handleGetCurrentGlucose` | `get_current_glucose` | Dexcom EGVs |
+| `handleGetGlucoseHistory` | `get_glucose_history` | Dexcom EGVs |
+| `handleGetTrend` | `get_trend` | Dexcom EGVs |
+| `handleGetDexcomEvents` | `get_dexcom_events` | Dexcom Events |
+| `handleGetCalibrations` | `get_calibrations` | Dexcom Calibrations |
+| `handleGetAlerts` | `get_alerts` | Dexcom Alerts |
+| `handleGetDevices` | `get_devices` | Dexcom Devices |
+| `handleGetDataRange` | `get_data_range` | Dexcom DataRange |
+| `handleLogMeal` | `log_meal` | Local SQLite |
+| `handleLogExercise` | `log_exercise` | Local SQLite |
+| `handleRateMealImpact` | `rate_meal_impact` | SQLite + Dexcom EGVs + Analyzer |
 
 ### MCP SDK pattern
 
 ```go
-// github.com/modelcontextprotocol/go-sdk/mcp
 mcp.AddTool(server, &mcp.Tool{
     Name:        "get_current_glucose",
     Description: "...",
@@ -228,7 +244,7 @@ Returned as `*mcp.CallToolResult` with `IsError: true`.
 }
 ```
 
-### Graceful degradation (Scenario 6)
+### Graceful degradation (Scenario 9)
 
 In `handleGetCurrentGlucose`:
 1. Attempt Dexcom API call
@@ -239,7 +255,7 @@ In `handleGetCurrentGlucose`:
 **Acceptance criteria:**
 - `docker compose up --build` succeeds
 - `GET /health` returns 200
-- All 6 tools visible in Claude MCP tool list
+- All 11 tools visible in Claude MCP tool list
 
 ---
 
@@ -247,7 +263,7 @@ In `handleGetCurrentGlucose`:
 
 **Branch:** `feat/tests`
 
-**Goal:** Integration tests covering all 7 SPEC scenarios. No live network calls. Dexcom API mocked with `httptest`.
+**Goal:** Integration tests covering all 10 SPEC scenarios. No live network calls. Dexcom API mocked with `httptest`.
 
 ### Test scenarios
 
@@ -257,9 +273,12 @@ In `handleGetCurrentGlucose`:
 | 2 | Meal Logging + Glucose Context | Meal in SQLite; `m_YYYYMMDD_HHmm` ID format; glucose data non-empty |
 | 3 | Meal Impact Rating | `spike_delta = peak - baseline`; rating matches table; `exercise_offset` populated when exercise in window; `rating_rationale` non-empty |
 | 4 | Exercise + Correlation | Exercise in SQLite; `e_YYYYMMDD_HHmm` ID format; history window ≥ exercise duration |
-| 5 | OAuth Token Refresh | Atomic token swap; new refresh_token captured; old one gone from decrypted store; original tool call succeeds |
-| 6 | Graceful Degradation | On mock 503: cached data returned with `stale_data_notice`; SQLite unaffected; no crash/hang |
-| 7 | First-Time OAuth Setup | `dexcom_auth` transitions `not_configured → valid`; `tokens.enc` created; subsequent tool calls succeed |
+| 5 | Reading Dexcom App Events | Mock events endpoint; `DexcomEvent` list returned; eventType and eventSubType correct |
+| 6 | Alert History Review | Mock alerts endpoint; `AlertRecord` list returned; alertName and alertState valid enum values |
+| 7 | Fingerstick Calibration Review | Mock calibrations endpoint; `CalibrationRecord` list returned; value in valid range |
+| 8 | OAuth Token Refresh | Atomic token swap; new refresh_token captured; old one gone from decrypted store; original tool call succeeds |
+| 9 | Graceful Degradation | On mock 503: cached data returned with `stale_data_notice`; SQLite unaffected; no crash/hang |
+| 10 | First-Time OAuth Setup | `dexcom_auth` transitions `not_configured → valid`; `tokens.enc` created; subsequent tool calls succeed |
 
 ### Test utilities
 

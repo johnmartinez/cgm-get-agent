@@ -4,11 +4,11 @@ An MCP (Model Context Protocol) server that connects LLMs (Claude, ChatGPT) to a
 
 ## What It Does
 
-- Retrieves real-time glucose readings from the Dexcom G7 via the Dexcom Developer API v3
-- Logs meals and exercise conversationally through the LLM
-- Correlates meals against post-meal glucose response curves
-- Rates meal impact on a 1–10 scale with actionable feedback
+- Exposes all six Dexcom API v3 read endpoints as MCP tools (EGVs, events, calibrations, alerts, devices, data range)
+- Logs meals and exercise locally with LLM-estimated macros
+- Correlates meals against post-meal glucose response curves and rates impact 1–10
 - Works with Claude (via MCP/SSE or stdio) and ChatGPT (via REST shim)
+- Degrades gracefully when Dexcom is unavailable using a local glucose cache
 
 ## Stack
 
@@ -106,12 +106,24 @@ See `.env.example` for a template.
 
 ## Available MCP Tools
 
+### Dexcom Read Tools (live data from Dexcom API v3 — read-only)
+
 | Tool | Description |
 |---|---|
 | `get_current_glucose` | Current reading + trend + optional history window |
 | `get_glucose_history` | EGV records for a date range (max 30-day window) |
 | `get_trend` | Lightweight trend arrow and rate of change |
-| `log_meal` | Log a meal with description and estimated macros |
+| `get_dexcom_events` | Carbs, insulin, exercise, health events logged in the G7 app |
+| `get_calibrations` | Fingerstick calibration records from the G7 |
+| `get_alerts` | Alert history: high, low, urgent low, rise, fall, out-of-range |
+| `get_devices` | G7 transmitter and display device info |
+| `get_data_range` | Earliest/latest timestamps for each Dexcom data type |
+
+### Local Tools (SQLite-backed, work offline)
+
+| Tool | Description |
+|---|---|
+| `log_meal` | Log a meal locally with description and estimated macros |
 | `log_exercise` | Log an exercise session with type, duration, intensity |
 | `rate_meal_impact` | Analyze glucose impact of a logged meal; 1–10 rating |
 

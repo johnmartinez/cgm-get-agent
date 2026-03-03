@@ -2,7 +2,7 @@
 
 ## 1. Overview
 
-CGM Get Agent is an MCP (Model Context Protocol) server that bridges LLM chatbots (Claude, ChatGPT) to a Dexcom G7 continuous glucose monitor via the Dexcom Developer API v3. It retrieves real-time glucose data, logs meals and exercise, correlates meals against glucose response curves, and provides structured data that LLMs use to generate personalized health guidance.
+CGM Get Agent is an MCP (Model Context Protocol) server that bridges LLM chatbots (Claude, ChatGPT) to a Dexcom G7 continuous glucose monitor via the Dexcom Developer API v3. It exposes all six Dexcom read endpoints as MCP tools, plus local meal and exercise logging with glucose correlation and impact rating. The LLM uses this structured data to provide personalized health guidance.
 
 The system runs as a single Go binary inside a Docker container on macOS (Apple Silicon / arm64), managed via Docker Compose with Colima as the container runtime.
 
@@ -13,13 +13,15 @@ The system runs as a single Go binary inside a Docker container on macOS (Apple 
 - **Spec-driven development**: This document is the source of truth. Claude Code implements against it.
 - **Health data sensitivity**: All Dexcom OAuth tokens encrypted at rest. No PHI leaves the local machine unless explicitly configured.
 - **Offline-tolerant**: Meal and exercise logging works without Dexcom connectivity. Glucose fetches degrade gracefully with cached data.
+- **Read-only Dexcom API**: The Dexcom API v3 is entirely read-only. Carbs, insulin, exercise, and health events logged in the Dexcom G7 app are readable via the API but cannot be created or deleted through it. Local meal and exercise logging fills this gap.
 
 ### 1.2 Constraints
 
 - Dexcom API v3 imposes a **1-hour data delay** for US mobile app users (G7 via iOS). Data uploaded from a receiver via USB is immediate. All tool responses must include the `data_delay_notice` field when the most recent EGV is older than 10 minutes.
-- Dexcom API v3 query windows are capped at **30 days** maximum. Requests exceeding this return HTTP 400.
+- Dexcom API v3 query windows are capped at **30 days** maximum. Requests exceeding this return a `WindowTooLargeError`.
 - Each `refresh_token` is **single-use**. Upon exchange, a new refresh_token is issued and the old one is invalidated. The token lifecycle manager must handle this atomically.
 - The G7 transmits an EGV reading every **5 minutes**.
+- Rate limit: 60,000 API calls per app per hour (HTTP 429 if exceeded).
 
 ---
 
@@ -56,19 +58,55 @@ ENUM TrendArrow:
     rateOutOfRange -- rate exceeds sensor capability
 
 RECORD DexcomEvent:
-    recordId    : String
-    systemTime  : Timestamp
-    displayTime : Timestamp
-    eventType   : EventType
-    eventSubType: String | None
-    value       : Float | None          -- carbs in grams, exercise in minutes, insulin in units
-    unit        : String                -- "grams", "minutes", "units", "mg/dL", "unknown"
+    recordId     : String
+    systemTime   : Timestamp
+    displayTime  : Timestamp
+    eventType    : EventType
+    eventSubType : EventSubType | None
+    value        : Float | None     -- carbs in grams, exercise in minutes, insulin in units
+    unit         : String           -- "grams", "minutes", "units", "mg/dL", "unknown"
 
 ENUM EventType:
     carbs
     insulin
     exercise
     health
+
+ENUM EventSubType:
+    -- carbs subtypes
+    liquid | solid
+    -- insulin subtypes
+    rapidActing | shortActing | longActing | combination
+    -- exercise subtypes
+    cardiovascular | strength | mixed
+    -- health subtypes
+    illness | stress | highSymptoms | lowSymptoms | cycle
+    -- shared
+    other | unknown
+
+RECORD CalibrationRecord:
+    recordId              : String    -- UUID from Dexcom
+    systemTime            : Timestamp
+    displayTime           : Timestamp
+    value                 : Int       -- fingerstick glucose reading in mg/dL
+    unit                  : String    -- "mg/dL"
+    transmitterId         : String
+    transmitterGeneration : String
+    displayDevice         : String
+    displayApp            : String
+
+RECORD AlertRecord:
+    recordId    : String
+    systemTime  : Timestamp
+    displayTime : Timestamp
+    alertName   : AlertType
+    alertState  : AlertState
+
+ENUM AlertType:
+    high | low | urgentLow | urgentLowSoon | rise | fall | outOfRange | noReadings
+
+ENUM AlertState:
+    triggered | acknowledged | cleared
 
 RECORD DataRange:
     calibrations : TimeRange
@@ -78,6 +116,15 @@ RECORD DataRange:
 RECORD TimeRange:
     start : Timestamp
     end   : Timestamp
+
+RECORD DeviceRecord:
+    deviceStatus          : String
+    displayDevice         : String
+    displayApp            : String
+    lastUploadDate        : String
+    transmitterGeneration : String
+    transmitterId         : String
+    alertScheduleList     : List<Any> | None
 ```
 
 ### 2.2 Application Types (local, read-write)
@@ -85,7 +132,7 @@ RECORD TimeRange:
 ```
 RECORD Meal:
     id          : String              -- generated: "m_YYYYMMDD_HHmm"
-    description : String              -- free text from user via LLM, e.g. "carne asada tacos x3 with horchata"
+    description : String              -- free text from user via LLM
     carbs_est   : Float | None        -- estimated grams, may be LLM-estimated
     protein_est : Float | None        -- estimated grams
     fat_est     : Float | None        -- estimated grams
@@ -103,11 +150,7 @@ RECORD Exercise:
     notes       : String | None
 
 ENUM ExerciseIntensity:
-    low
-    moderate
-    moderate_high
-    high
-    max
+    low | moderate | moderate_high | high | max
 
 RECORD GlucoseSnapshot:
     current     : EGVRecord           -- most recent reading
@@ -134,7 +177,7 @@ RECORD ExerciseOffset:
     glucose_at_start: Int             -- mg/dL when exercise began
     glucose_at_end  : Int             -- mg/dL when exercise ended
     delta           : Int             -- change during exercise
-    effectiveness   : String          -- "strong", "moderate", "minimal", "none"
+    effectiveness   : String          -- "strong_reduction", "mild_reduction", "neutral", "no_reduction"
 
 RECORD OAuthTokens:
     access_token    : String          -- encrypted at rest
@@ -178,10 +221,12 @@ ENUM DexcomEnv:
 
 ### 3.1 MCP Tool Definitions
 
-The MCP server exposes six tools. Each tool has a name, description, input schema (JSON Schema), and returns structured JSON as `TextContent` in the MCP `CallToolResult`.
+The MCP server exposes eleven tools. The first six fetch data from Dexcom; the final five manage local data and analysis. Each tool returns structured JSON as `TextContent` in the MCP `CallToolResult`.
 
 ```
 INTERFACE MCPTools:
+
+    -- ── Dexcom Read Tools (all read-only, backed by Dexcom API v3) ─────────
 
     TOOL get_current_glucose:
         description: "Get the current glucose reading from the Dexcom G7, including trend direction, rate of change, and optional recent history."
@@ -213,10 +258,61 @@ INTERFACE MCPTools:
             trendRate  : Float
             value      : Int
             timestamp  : Timestamp
-            zone       : String        -- "low", "target", "elevated", "high" based on config
+            zone       : String        -- "low", "low_normal", "target", "elevated", "high" per config
+
+    TOOL get_dexcom_events:
+        description: "Get events logged in the Dexcom G7 app (carbs, insulin, exercise, health) for a date range. Read-only; the Dexcom API does not support creating events."
+        input:
+            start_date   : Timestamp   -- ISO 8601
+            end_date     : Timestamp   -- ISO 8601
+        output: List<DexcomEvent> (JSON)
+        errors:
+            - WindowTooLargeError
+            - DexcomAuthError
+            - DexcomAPIError
+
+    TOOL get_calibrations:
+        description: "Get fingerstick blood glucose calibration records from the Dexcom G7 for a date range."
+        input:
+            start_date : Timestamp     -- ISO 8601
+            end_date   : Timestamp     -- ISO 8601
+        output: List<CalibrationRecord> (JSON)
+        errors:
+            - WindowTooLargeError
+            - DexcomAuthError
+            - DexcomAPIError
+
+    TOOL get_alerts:
+        description: "Get glucose alert events (high, low, urgent low, rising fast, falling fast) fired by the G7 sensor for a date range."
+        input:
+            start_date : Timestamp     -- ISO 8601
+            end_date   : Timestamp     -- ISO 8601
+        output: List<AlertRecord> (JSON)
+        errors:
+            - WindowTooLargeError
+            - DexcomAuthError
+            - DexcomAPIError
+
+    TOOL get_devices:
+        description: "Get Dexcom G7 transmitter and display device information for the authenticated user."
+        input: (none)
+        output: List<DeviceRecord> (JSON)
+        errors:
+            - DexcomAuthError
+            - DexcomAPIError
+
+    TOOL get_data_range:
+        description: "Get the earliest and latest timestamps for each Dexcom data type (EGVs, events, calibrations). Useful for determining what data is available before making range queries."
+        input: (none)
+        output: DataRange (JSON)
+        errors:
+            - DexcomAuthError
+            - DexcomAPIError
+
+    -- ── Local Tools (SQLite-backed, work without Dexcom connectivity) ───────
 
     TOOL log_meal:
-        description: "Log a meal with description and optional estimated macros. The LLM typically estimates carbs/protein/fat from the user's description."
+        description: "Log a meal locally with description and optional estimated macros. The LLM typically estimates carbs/protein/fat from the user's description. Use get_dexcom_events to read meals logged in the G7 app."
         input:
             description : String       -- required, free text
             carbs_est   : Float | None
@@ -227,7 +323,7 @@ INTERFACE MCPTools:
         output: Meal (JSON, the stored record)
 
     TOOL log_exercise:
-        description: "Log an exercise session with type, duration, and intensity."
+        description: "Log an exercise session locally with type, duration, and intensity."
         input:
             type         : String      -- required, free text
             duration_min : Int         -- required
@@ -300,37 +396,40 @@ INTERFACE OAuthHandler:
 
 ### 3.4 Dexcom Client
 
+All six Dexcom data endpoints are read-only. The API does not support creating, updating, or deleting any records.
+
 ```
 INTERFACE DexcomClient:
 
     FUNCTION get_egvs(start: Timestamp, end: Timestamp) -> List<EGVRecord>:
         -- GET {base}/v3/users/self/egvs?startDate={start}&endDate={end}
-        -- Authorization: Bearer {access_token}
         -- Validates window <= 30 days.
-        -- Parses response.records array.
-        -- Queries against systemTime field.
 
     FUNCTION get_events(start: Timestamp, end: Timestamp) -> List<DexcomEvent>:
         -- GET {base}/v3/users/self/events?startDate={start}&endDate={end}
         -- Returns carb intake, insulin, exercise, health events logged in Dexcom app.
 
+    FUNCTION get_calibrations(start: Timestamp, end: Timestamp) -> List<CalibrationRecord>:
+        -- GET {base}/v3/users/self/calibrations?startDate={start}&endDate={end}
+        -- Returns fingerstick calibration records. Empty for Dexcom ONE/ONE+.
+
+    FUNCTION get_alerts(start: Timestamp, end: Timestamp) -> List<AlertRecord>:
+        -- GET {base}/v3/users/self/alerts?startDate={start}&endDate={end}
+        -- Returns high/low/urgentLow/rise/fall/outOfRange/noReadings alert events.
+
     FUNCTION get_data_range() -> DataRange:
         -- GET {base}/v3/users/self/dataRange
-        -- Returns earliest/latest timestamps for each record type.
-        -- Useful for determining if new data is available.
+        -- No date parameters. Returns earliest/latest timestamps for all data types.
 
     FUNCTION get_devices() -> List<DeviceRecord>:
         -- GET {base}/v3/users/self/devices
-        -- Returns G7 device info, alerts, settings.
-        -- No date parameters required.
+        -- No date parameters. Returns G7 device info, transmitter, alerts config.
 ```
 
 ### 3.5 Store (SQLite)
 
 ```
 INTERFACE Store:
-
-    -- Schema migrations run on startup. Use a migrations table for versioning.
 
     TABLE meals:
         id          TEXT PRIMARY KEY
@@ -346,7 +445,7 @@ INTERFACE Store:
         id           TEXT PRIMARY KEY
         type         TEXT NOT NULL
         duration_min INTEGER NOT NULL
-        intensity    TEXT NOT NULL       -- enum value as string
+        intensity    TEXT NOT NULL
         timestamp    TEXT NOT NULL
         logged_at    TEXT NOT NULL
         notes        TEXT
@@ -371,7 +470,7 @@ INTERFACE Store:
     FUNCTION save_exercise(e: Exercise) -> Exercise
     FUNCTION list_exercise(start: Timestamp, end: Timestamp) -> List<Exercise>
 
-    FUNCTION cache_egvs(records: List<EGVRecord>) -> Int  -- returns count cached
+    FUNCTION cache_egvs(records: List<EGVRecord>) -> Int
     FUNCTION get_cached_egvs(start: Timestamp, end: Timestamp) -> List<EGVRecord>
 ```
 
@@ -382,20 +481,15 @@ INTERFACE GlucoseAnalyzer:
 
     FUNCTION classify_zone(value: Int, config: GlucoseZones) -> String:
         -- Returns "low" | "low_normal" | "target" | "elevated" | "high"
-        -- Thresholds from config.glucose_zones.
 
     FUNCTION compute_snapshot(egvs: List<EGVRecord>, config: GlucoseZones) -> GlucoseSnapshot:
         -- Identifies current, baseline, peak, trough from EGV series.
         -- Sets data_delay_notice if most recent EGV systemTime > 10 minutes old.
 
     FUNCTION assess_meal_impact(meal: Meal, egvs: List<EGVRecord>, exercises: List<Exercise>) -> MealImpactAssessment:
-        -- Finds pre-meal baseline (last EGV before meal timestamp).
-        -- Finds post-meal peak (highest EGV in 30-180 min window after meal).
-        -- Calculates spike_delta = peak - baseline.
-        -- Calculates time_to_peak_min.
-        -- Determines recovery: has glucose returned to within 10 mg/dL of baseline?
-        -- If exercise occurred in the post-meal window, calculates ExerciseOffset.
-        -- Assigns rating 1-10:
+        -- Post-meal window: 30-180 minutes after meal.timestamp.
+        -- spike_delta = peak - baseline.
+        -- Rating 1-10:
             10: spike_delta <= 20
             9:  spike_delta <= 30
             8:  spike_delta <= 40
@@ -406,7 +500,6 @@ INTERFACE GlucoseAnalyzer:
             3:  spike_delta <= 100
             2:  spike_delta <= 120
             1:  spike_delta > 120
-        -- Generates rating_rationale string explaining the score factors.
 ```
 
 ---
@@ -415,15 +508,13 @@ INTERFACE GlucoseAnalyzer:
 
 ### 4.1 SDK Choice
 
-Use the **official Go MCP SDK**: `github.com/modelcontextprotocol/go-sdk/mcp`. This is maintained in collaboration with Google and tracks the MCP spec. Import path: `github.com/modelcontextprotocol/go-sdk/mcp`.
+Use the **official Go MCP SDK**: `github.com/modelcontextprotocol/go-sdk/mcp`. Import path: `github.com/modelcontextprotocol/go-sdk/mcp`.
 
-The server must support both **SSE transport** (for remote MCP clients like claude.ai) and **stdio transport** (for Claude Code local usage). Use a CLI flag or env var to select transport mode: `GA_MCP_TRANSPORT=sse|stdio` (default: `sse`).
+The server must support both **SSE transport** (for remote MCP clients like claude.ai) and **stdio transport** (for Claude Code local usage). Use env var to select: `GA_MCP_TRANSPORT=sse|stdio` (default: `sse`).
 
 ### 4.2 Tool Registration Pattern
 
-Each tool is registered using the SDK's typed tool handler pattern:
-
-```
+```go
 mcp.AddTool(server, &mcp.Tool{
     Name:        "get_current_glucose",
     Description: "Get the current glucose reading...",
@@ -434,9 +525,9 @@ Input structs use `json` and `jsonschema` struct tags for automatic JSON Schema 
 
 ### 4.3 Error Handling
 
-Tool errors are returned as `mcp.CallToolResult` with `IsError: true` and a `TextContent` block containing a structured JSON error:
+Tool errors are returned as `mcp.CallToolResult` with `IsError: true` and a `TextContent` block:
 
-```
+```json
 {
     "error": "DexcomAuthError",
     "message": "OAuth tokens expired. Re-authorize at http://localhost:8080/oauth/start",
@@ -517,13 +608,13 @@ cgm-get-agent/
 ├── internal/
 │   ├── mcp/
 │   │   ├── server.go                -- MCP server setup, transport selection, tool registration
-│   │   └── tools.go                 -- tool handler functions (one per tool)
+│   │   └── tools.go                 -- 11 tool handler functions
 │   ├── rest/
 │   │   └── handler.go               -- REST shim: /v1/tools/invoke, /health
 │   ├── dexcom/
-│   │   ├── client.go                -- Dexcom API client (get_egvs, get_events, get_data_range, get_devices)
-│   │   ├── oauth.go                 -- OAuth2 lifecycle (start, callback, refresh, token management)
-│   │   └── types.go                 -- EGVRecord, DexcomEvent, DataRange, TrendArrow, etc.
+│   │   ├── client.go                -- Dexcom API client (all 6 endpoints)
+│   │   ├── oauth.go                 -- OAuth2 lifecycle
+│   │   └── types.go                 -- API response envelopes and error types
 │   ├── store/
 │   │   ├── sqlite.go                -- SQLite connection, migrations
 │   │   ├── meals.go                 -- Meal CRUD
@@ -533,12 +624,14 @@ cgm-get-agent/
 │   │   └── glucose.go               -- GlucoseAnalyzer: zone classification, snapshot, meal impact
 │   ├── crypto/
 │   │   └── tokens.go                -- AES-256-GCM encrypt/decrypt for OAuth tokens
-│   └── config/
-│       └── config.go                -- YAML + env var config loading
+│   ├── config/
+│   │   └── config.go                -- YAML + env var config loading
+│   └── types/
+│       └── types.go                 -- All shared types across packages
 ├── docs/
-│   ├── architecture.mermaid         -- system architecture diagram
-│   ├── workflow.mermaid             -- runtime workflow sequence diagram
-│   └── cgm-get-agent-spec.md       -- this file
+│   ├── architecture.mermaid
+│   ├── workflow.mermaid
+│   └── implementation-plan.md
 ├── Dockerfile
 ├── docker-compose.yaml
 ├── .env.example
@@ -552,8 +645,6 @@ cgm-get-agent/
 
 ## 7. Scenarios
 
-Scenarios are behavioral test cases that validate the system end-to-end. Each scenario describes a user intent, the expected tool invocations, and the expected structured output. These are used both for manual validation and as the basis for automated integration tests.
-
 ### Scenario 1: Simple Glucose Check
 
 ```
@@ -563,7 +654,6 @@ EXPECTED TOOL CALLS:
     1. get_current_glucose(include_trend=true, history_minutes=30)
 
 EXPECTED BEHAVIOR:
-    - Agent calls Dexcom GET /v3/users/self/egvs with 30-min window.
     - Returns GlucoseSnapshot with current reading, trend, and short history.
     - If data is >10 min stale, includes data_delay_notice.
 
@@ -571,7 +661,6 @@ VALIDATION:
     - Response contains valid EGV value (40-400 mg/dL range).
     - Trend is a valid TrendArrow enum value.
     - history array is ordered by systemTime ascending.
-    - If sandbox: value comes from sandbox test data.
 ```
 
 ### Scenario 2: Meal Logging + Glucose Context
@@ -583,13 +672,8 @@ EXPECTED TOOL CALLS:
     1. log_meal(description="three carne asada tacos with a horchata", carbs_est=~70, ...)
     2. get_current_glucose(include_trend=true, history_minutes=30)
 
-EXPECTED BEHAVIOR:
-    - Meal is stored in SQLite with LLM-estimated macros.
-    - Current glucose is fetched for context.
-    - LLM uses both results to provide guidance on what to expect.
-
 VALIDATION:
-    - Meal record exists in meals table with matching description.
+    - Meal record exists in SQLite with matching description.
     - meal.id follows "m_YYYYMMDD_HHmm" format.
     - Glucose data is returned and non-empty.
 ```
@@ -600,20 +684,13 @@ VALIDATION:
 USER: "How did that burrito I had at lunch hit me?"
 
 EXPECTED TOOL CALLS:
-    1. (LLM resolves "that burrito at lunch" to a meal_id, possibly via list_meals or context)
-    2. rate_meal_impact(meal_id="m_20260303_1215")
-
-EXPECTED BEHAVIOR:
-    - Agent reads meal from SQLite.
-    - Queries Dexcom for 3-hour post-meal EGV window.
-    - Queries SQLite for exercise in the same window.
-    - Computes MealImpactAssessment.
+    1. rate_meal_impact(meal_id="m_20260303_1215")
 
 VALIDATION:
     - spike_delta = peak_glucose - pre_meal_glucose.
-    - rating is 1-10 and consistent with spike_delta table in Section 3.6.
-    - If exercise occurred, exercise_offset is populated with non-None values.
-    - rating_rationale is a non-empty string explaining factors.
+    - rating is 1-10 consistent with spike_delta table.
+    - exercise_offset populated if exercise occurred in post-meal window.
+    - rating_rationale is non-empty.
 ```
 
 ### Scenario 4: Exercise + Glucose Correlation
@@ -625,17 +702,53 @@ EXPECTED TOOL CALLS:
     1. log_exercise(type="run", duration_min=30, intensity="moderate_high", ...)
     2. get_current_glucose(include_trend=true, history_minutes=60)
 
-EXPECTED BEHAVIOR:
-    - Exercise logged.
-    - 60-min history shows pre- and during-exercise glucose trajectory.
-    - LLM interprets the trend and exercise effect.
-
 VALIDATION:
-    - Exercise record exists in exercise table.
+    - Exercise record exists in SQLite.
     - History window covers at least the exercise duration.
 ```
 
-### Scenario 5: OAuth Token Refresh (Background)
+### Scenario 5: Reading Dexcom App Events
+
+```
+USER: "What did I log in my Dexcom app today?"
+
+EXPECTED TOOL CALLS:
+    1. get_dexcom_events(start_date="2026-03-03T00:00:00", end_date="2026-03-03T23:59:59")
+
+VALIDATION:
+    - Returns list of DexcomEvent records (carbs, insulin, exercise, health).
+    - Each event has valid eventType and optional eventSubType.
+    - Value and unit consistent with eventType.
+```
+
+### Scenario 6: Alert History Review
+
+```
+USER: "Did my Dexcom alarm go off last night?"
+
+EXPECTED TOOL CALLS:
+    1. get_alerts(start_date="2026-03-02T22:00:00", end_date="2026-03-03T06:00:00")
+
+VALIDATION:
+    - Returns list of AlertRecord objects.
+    - alertName is a valid AlertType enum value.
+    - alertState reflects triggered/acknowledged/cleared lifecycle.
+```
+
+### Scenario 7: Fingerstick Calibration Review
+
+```
+USER: "When did I last calibrate my CGM?"
+
+EXPECTED TOOL CALLS:
+    1. get_calibrations(start_date="2026-02-25T00:00:00", end_date="2026-03-03T23:59:59")
+
+VALIDATION:
+    - Returns list of CalibrationRecord objects.
+    - value is a plausible fingerstick reading (40-400 mg/dL).
+```
+
+### Scenario 8: OAuth Token Refresh (Background)
 
 ```
 TRIGGER: Any tool call when access_token is within 5 minutes of expiry.
@@ -645,47 +758,42 @@ EXPECTED BEHAVIOR:
     - POSTs refresh_token to Dexcom /v3/oauth2/token.
     - Captures NEW refresh_token from response (old one is now invalid).
     - Atomically writes encrypted tokens to /data/tokens.enc.
-    - Retries the original Dexcom API call with new access_token.
+    - Original tool call succeeds transparently.
 
 VALIDATION:
-    - tokens.enc file is updated with new encrypted payload.
-    - Old refresh_token is no longer present in decrypted store.
-    - Original tool call succeeds transparently.
+    - tokens.enc updated with new encrypted payload.
+    - Old refresh_token no longer present in decrypted store.
 ```
 
-### Scenario 6: Dexcom API Unavailable (Graceful Degradation)
+### Scenario 9: Dexcom API Unavailable (Graceful Degradation)
 
 ```
 TRIGGER: Dexcom API returns 5xx or connection timeout during get_current_glucose.
 
 EXPECTED BEHAVIOR:
-    - Agent checks glucose_cache table for most recent cached EGVs.
-    - If cache has data within last 30 minutes, returns cached data with a stale_data_notice.
-    - If cache is older than 30 minutes, returns error with suggestion to try again.
-    - Meal and exercise logging still works (SQLite-only path).
+    - Agent checks glucose_cache table for records within last 30 minutes.
+    - Cache hit → return cached GlucoseSnapshot with stale_data_notice.
+    - Cache miss → return structured error with retry suggestion.
+    - Local meal/exercise logging unaffected.
 
 VALIDATION:
     - Tool does not crash or hang.
-    - Response includes either cached data with notice or a clear error message.
-    - SQLite operations are unaffected.
+    - Response includes cached data with notice, or clear error.
 ```
 
-### Scenario 7: First-Time Setup (OAuth Authorization)
+### Scenario 10: First-Time Setup (OAuth Authorization)
 
 ```
-USER: Starts the container for the first time, no tokens exist.
+USER: Starts container for first time; no tokens exist.
 
 EXPECTED BEHAVIOR:
     - GET /health returns: dexcom_auth="not_configured"
     - User visits http://localhost:8080/oauth/start in browser.
-    - Redirected to Dexcom login with correct parameters.
-    - After Dexcom auth + HIPAA consent, redirected to /callback with code.
-    - Agent exchanges code for tokens, encrypts, stores.
-    - GET /health now returns: dexcom_auth="valid"
+    - After Dexcom auth + HIPAA consent, redirected to /callback.
+    - Tokens encrypted and stored; GET /health returns dexcom_auth="valid".
 
 VALIDATION:
-    - /data/tokens.enc file exists and is non-empty.
-    - Decrypted tokens contain both access_token and refresh_token.
+    - /data/tokens.enc exists and is non-empty after flow.
     - Subsequent tool calls succeed.
 ```
 
@@ -696,68 +804,51 @@ VALIDATION:
 ### 8.1 Development Workflow
 
 ```bash
-# Clone and enter repo
 cd ~/git/cgm-get-agent
-
-# Create environment file from example
 cp .env.example .env
-# Edit .env with Dexcom developer portal credentials + encryption key
-
-# Generate encryption key
 openssl rand -hex 32  # paste into .env as GA_ENCRYPTION_KEY
 
-# Build and start
 docker compose up --build
-
-# One-time OAuth setup (open in browser)
 open http://localhost:8080/oauth/start
 
-# Connect Claude Code (stdio mode)
-# For local dev, run the binary directly with GA_MCP_TRANSPORT=stdio
+# Claude Code stdio
 claude mcp add cgm-get-agent -- docker exec -i cgm-get-agent cgm-get-agent serve --transport stdio
 
-# Or connect Claude Code to the SSE endpoint
+# Or SSE
 claude mcp add --transport sse cgm-get-agent http://localhost:8080/mcp
 ```
 
 ### 8.2 Testing with Dexcom Sandbox
 
-The Dexcom sandbox (sandbox-api.dexcom.com) provides simulated G7 data. No real CGM is needed for development. Sandbox login does not require a password. Set `GA_DEXCOM_ENV=sandbox` in .env.
+Set `GA_DEXCOM_ENV=sandbox` (default). No real CGM required for development.
 
 ### 8.3 Production Cutover
 
 ```bash
-# In .env, change:
 GA_DEXCOM_ENV=production
-
-# Rebuild and re-authorize
 docker compose up --build
 open http://localhost:8080/oauth/start
-# This time, real Dexcom credentials + HIPAA consent required
 ```
 
 ---
 
 ## 9. Security Considerations
 
-- **Token encryption**: All Dexcom OAuth tokens are AES-256-GCM encrypted at rest in /data/tokens.enc. The encryption key is provided via environment variable, never baked into the image.
-- **Volume permissions**: ~/.cgm-get-agent on host should be mode 0700. Contains PHI-adjacent health data.
-- **No inbound internet**: Container binds to localhost:8080 only. For remote access (e.g., iPad), use Tailscale, WireGuard, or mTLS reverse proxy. Never expose MCP endpoint raw.
-- **Dexcom HIPAA**: The Dexcom OAuth flow includes a HIPAA authorization screen. User must consent. This consent is per-authorization; revoking access is done at dexcom.com account settings.
-- **No PHI in logs**: Do not log glucose values, meal descriptions, or any health data at INFO level. DEBUG level may include EGV values for troubleshooting but should be disabled in normal operation.
-- **CSRF protection**: The /oauth/start endpoint generates a random state parameter stored server-side and validated in /callback.
-- **Container isolation**: Single process, no shell needed in production image. Consider distroless base for hardened deployment.
+- **Token encryption**: AES-256-GCM at rest in `/data/tokens.enc`. Key from env var only.
+- **Volume permissions**: `~/.cgm-get-agent` should be `chmod 700`.
+- **No inbound internet**: Container binds to localhost:8080. Use Tailscale or WireGuard for remote access.
+- **Dexcom HIPAA**: OAuth flow includes HIPAA authorization screen. Consent required.
+- **No PHI in logs**: Glucose values, meal descriptions, and health data must not appear at INFO level.
+- **CSRF protection**: `/oauth/start` generates a random state stored server-side and validated in `/callback`.
 
 ---
 
 ## 10. Future Extensions (Out of Scope for v1)
 
-These are documented for architectural awareness but NOT part of the initial implementation:
-
-- **Apple Health / HealthKit integration**: Pull exercise and meal data from Apple Health via a companion iOS shortcut or app.
-- **Nightscout bridge**: For users who also run Nightscout, pull glucose data from Nightscout API as an alternative to Dexcom direct.
-- **Multi-user support**: Current architecture is single-user. Multi-user would require per-user token storage, user identification in MCP sessions, and tenant isolation.
-- **Insulin tracking**: Dexcom events include insulin doses. A future tool could correlate insulin + meal + exercise + glucose for comprehensive analysis.
-- **Pattern recognition**: Weekly/monthly trend analysis, time-in-range reports, dawn phenomenon detection.
-- **Notification/alerting**: Proactive alerts when glucose enters danger zones (would require a persistent polling loop or webhook).
-- **LLM system prompt distribution**: Serve the glucose zone definitions and dietary context as an MCP resource, so the LLM can read them dynamically instead of requiring them in the system prompt.
+- Apple Health / HealthKit integration
+- Nightscout bridge
+- Multi-user support
+- Insulin tracking and dose correlation
+- Pattern recognition (weekly/monthly trends, time-in-range, dawn phenomenon)
+- Notification/alerting (persistent polling loop or webhook)
+- LLM system prompt distribution via MCP resources

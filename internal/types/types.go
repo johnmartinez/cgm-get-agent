@@ -52,15 +52,95 @@ const (
 	EventTypeHealth   EventType = "health"
 )
 
+// EventSubType qualifies an EventType with a more specific category.
+// Not all events have a subtype; the field is omitempty in the API response.
+type EventSubType string
+
+const (
+	// Carbs subtypes
+	EventSubTypeCarbsLiquid EventSubType = "liquid"
+	EventSubTypeCarbsSolid  EventSubType = "solid"
+
+	// Insulin subtypes
+	EventSubTypeInsulinRapidActing EventSubType = "rapidActing"
+	EventSubTypeInsulinShortActing EventSubType = "shortActing"
+	EventSubTypeInsulinLongActing  EventSubType = "longActing"
+	EventSubTypeInsulinCombination EventSubType = "combination"
+
+	// Exercise subtypes
+	EventSubTypeExerciseCardiovascular EventSubType = "cardiovascular"
+	EventSubTypeExerciseStrength       EventSubType = "strength"
+	EventSubTypeExerciseMixed          EventSubType = "mixed"
+
+	// Health subtypes
+	EventSubTypeHealthIllness     EventSubType = "illness"
+	EventSubTypeHealthStress      EventSubType = "stress"
+	EventSubTypeHealthHighSymptom EventSubType = "highSymptoms"
+	EventSubTypeHealthLowSymptom  EventSubType = "lowSymptoms"
+	EventSubTypeHealthCycle       EventSubType = "cycle"
+
+	// Shared fallbacks
+	EventSubTypeOther   EventSubType = "other"
+	EventSubTypeUnknown EventSubType = "unknown"
+)
+
 // DexcomEvent is a carbs/insulin/exercise/health event from the Dexcom API.
+// These are events logged by the user in the Dexcom G7 mobile app; the API is read-only.
 type DexcomEvent struct {
-	RecordID     string    `json:"recordId"`
-	SystemTime   time.Time `json:"systemTime"`
-	DisplayTime  time.Time `json:"displayTime"`
-	EventType    EventType `json:"eventType"`
-	EventSubType *string   `json:"eventSubType,omitempty"`
-	Value        *float64  `json:"value,omitempty"`
-	Unit         string    `json:"unit"`
+	RecordID     string        `json:"recordId"`
+	SystemTime   time.Time     `json:"systemTime"`
+	DisplayTime  time.Time     `json:"displayTime"`
+	EventType    EventType     `json:"eventType"`
+	EventSubType *EventSubType `json:"eventSubType,omitempty"`
+	Value        *float64      `json:"value,omitempty"`
+	Unit         string        `json:"unit"`
+}
+
+// CalibrationRecord is a single fingerstick blood glucose calibration entry
+// as returned by GET /v3/users/self/calibrations. Read-only via the API.
+type CalibrationRecord struct {
+	RecordID              string    `json:"recordId"`
+	SystemTime            time.Time `json:"systemTime"`
+	DisplayTime           time.Time `json:"displayTime"`
+	Value                 int       `json:"value"` // mg/dL fingerstick reading
+	Unit                  string    `json:"unit"`
+	TransmitterID         string    `json:"transmitterId"`
+	TransmitterGeneration string    `json:"transmitterGeneration"`
+	DisplayDevice         string    `json:"displayDevice"`
+	DisplayApp            string    `json:"displayApp"`
+}
+
+// AlertType identifies the kind of alert fired by the G7.
+type AlertType string
+
+const (
+	AlertTypeHigh         AlertType = "high"
+	AlertTypeLow          AlertType = "low"
+	AlertTypeUrgentLow    AlertType = "urgentLow"
+	AlertTypeUrgentLowSoon AlertType = "urgentLowSoon"
+	AlertTypeRise         AlertType = "rise"
+	AlertTypeFall         AlertType = "fall"
+	AlertTypeOutOfRange   AlertType = "outOfRange"
+	AlertTypeNoReadings   AlertType = "noReadings"
+)
+
+// AlertState tracks the lifecycle of an alert event.
+type AlertState string
+
+const (
+	AlertStateTriggered    AlertState = "triggered"
+	AlertStateAcknowledged AlertState = "acknowledged"
+	AlertStateCleared      AlertState = "cleared"
+)
+
+// AlertRecord is a single alert event as returned by GET /v3/users/self/alerts.
+// Alerts are fired by the G7 when glucose enters a configured danger zone.
+type AlertRecord struct {
+	RecordID    string     `json:"recordId"`
+	SystemTime  time.Time  `json:"systemTime"`
+	DisplayTime time.Time  `json:"displayTime"`
+	AlertName   AlertType  `json:"alertName"`
+	AlertState  AlertState `json:"alertState"`
 }
 
 // TimeRange is a start/end timestamp pair from the Dexcom dataRange endpoint.
