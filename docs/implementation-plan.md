@@ -21,9 +21,9 @@ This document memorializes the phased build plan for the `cgm-get-agent` project
 
 | Phase | Branch | Est. Output Tokens | Status |
 |---|---|---|---|
-| CLAUDE.md + README.md | `main` | ~2,000 | ✅ Complete |
-| 1 — Scaffolding | `feat/scaffolding` | ~3,000 | ⬜ Pending |
-| 2 — Core Packages | `feat/core-packages` | ~10,000 | ⬜ Pending |
+| CLAUDE.md + README.md | `main` | ~2,000 | ✅ Complete — PR #1 |
+| 1 — Scaffolding | `feat/scaffolding` | ~3,000 | ✅ Complete — PR #2 |
+| 2 — Core Packages | `feat/core-packages` | ~10,000 | ✅ Complete — PR #3 |
 | 3 — Dexcom Integration | `feat/dexcom` | ~8,000 | ⬜ Pending |
 | 4 — Glucose Analyzer | `feat/analyzer` | ~5,000 | ⬜ Pending |
 | 5 — MCP Server + REST + Entrypoint | `feat/mcp-server` | ~8,000 | ⬜ Pending |
