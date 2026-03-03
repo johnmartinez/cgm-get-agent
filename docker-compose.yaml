@@ -1,0 +1,22 @@
+services:
+  cgm-get-agent:
+    build: .
+    container_name: cgm-get-agent
+    ports:
+      - "8080:8080"
+    volumes:
+      - ~/.cgm-get-agent:/data
+    env_file:
+      - .env
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    networks:
+      - cgm-get-agent-net
+
+networks:
+  cgm-get-agent-net:
+    driver: bridge

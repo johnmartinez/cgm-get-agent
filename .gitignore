@@ -1,0 +1,31 @@
+# Credentials and secrets — never commit these
+.env
+*.enc
+*.key
+*.pem
+
+# SQLite database files
+data.db
+data.db-shm
+data.db-wal
+
+# Config override (runtime config, not example)
+config.yaml
+
+# Local data directory
+.cgm-get-agent/
+
+# Go build artifacts
+*.exe
+*.test
+*.out
+/cgm-get-agent
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+
+# macOS
+.DS_Store
