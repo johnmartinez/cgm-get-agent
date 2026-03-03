@@ -1,0 +1,92 @@
+---
+title: "CGM Get Agent — Runtime Workflow"
+---
+sequenceDiagram
+    actor User
+    participant LLM as Claude / ChatGPT
+    participant MCP as MCP Agent Server<br/>(Docker)
+    participant SQLite as SQLite<br/>(/data/data.db)
+    participant OAuth as OAuth2 Handler
+    participant Dexcom as Dexcom API<br/>(api.dexcom.com)
+    participant G7 as Dexcom G7 + iOS App
+
+    Note over G7,Dexcom: Background: G7 sensor → iOS app → Dexcom cloud (1hr US delay)
+    G7->>Dexcom: EGV every 5 min via cloud sync
+
+    rect rgb(40, 40, 60)
+        Note over User,LLM: 1. User asks a glucose question
+        User->>LLM: "I had chilaquiles an hour ago<br/>and did 20min kettlebells.<br/>How am I looking?"
+    end
+
+    rect rgb(30, 60, 40)
+        Note over LLM,MCP: 2. LLM reasons and emits tool calls
+        LLM->>MCP: tool_use: log_meal<br/>{desc: "chilaquiles", carbs_est: 55, time: "~1hr ago"}
+        LLM->>MCP: tool_use: log_exercise<br/>{type: "kettlebell", duration: 20, intensity: "moderate-high"}
+        LLM->>MCP: tool_use: get_current_glucose<br/>{include_trend: true, history_minutes: 120}
+    end
+
+    rect rgb(60, 40, 30)
+        Note over MCP,SQLite: 3a. Agent logs meal and exercise
+        MCP->>SQLite: INSERT INTO meals (...)
+        SQLite-->>MCP: meal_id: m_20260303_1145
+        MCP->>SQLite: INSERT INTO exercise (...)
+        SQLite-->>MCP: exercise_id: e_20260303_1230
+    end
+
+    rect rgb(30, 40, 60)
+        Note over MCP,Dexcom: 3b. Agent fetches glucose (with token lifecycle)
+        MCP->>OAuth: Get valid access_token
+        OAuth->>OAuth: Check token expiry
+
+        alt Token expired
+            OAuth->>Dexcom: POST /v3/oauth2/token<br/>(refresh_token grant)
+            Dexcom-->>OAuth: New access_token + refresh_token
+            OAuth->>OAuth: Encrypt & store tokens
+        end
+
+        OAuth-->>MCP: Valid access_token
+
+        MCP->>Dexcom: GET /v3/users/self/egvs<br/>?startDate=T-2h&endDate=now<br/>Authorization: Bearer {token}
+        Dexcom-->>MCP: EGV records array<br/>[{value: 105, trend: "flat", time: T-2h},<br/> {value: 168, trend: "rising", time: T-50m},<br/> {value: 142, trend: "flat", time: now}]
+    end
+
+    rect rgb(50, 30, 50)
+        Note over MCP,MCP: 4. Agent assembles tool results
+        MCP->>MCP: Build structured response:<br/>• current: 142 mg/dL, flat, trendRate: -0.5<br/>• peak: 168 @ T-50m<br/>• baseline: 105 @ T-2h<br/>• spike_delta: 63 mg/dL<br/>• meal logged ✓<br/>• exercise logged ✓
+    end
+
+    MCP-->>LLM: tool_results (all three)
+
+    rect rgb(30, 60, 40)
+        Note over LLM,LLM: 5. LLM may chain a follow-up tool call
+        LLM->>MCP: tool_use: rate_meal_impact<br/>{meal_id: "m_20260303_1145"}
+
+        MCP->>SQLite: SELECT * FROM meals WHERE id = ...
+        SQLite-->>MCP: Meal record (time, carbs, description)
+
+        MCP->>Dexcom: GET /v3/users/self/egvs<br/>?startDate=meal_time&endDate=meal_time+3h
+
+        Dexcom-->>MCP: Post-meal EGV curve
+
+        MCP->>MCP: Analyze:<br/>• baseline → peak delta<br/>• time to peak<br/>• recovery time<br/>• exercise offset effect<br/>• meal rating: 6/10
+
+        MCP-->>LLM: Structured meal impact assessment
+    end
+
+    rect rgb(40, 40, 60)
+        Note over LLM,User: 6. LLM synthesizes natural language response
+        LLM->>User: "You're at 142 and dropping slowly —<br/>the kettlebell session is pulling you down.<br/>Chilaquiles spiked you to 168 (~63pt rise).<br/>Meal rating: 6/10. Horchata-free next time<br/>would keep you under 145."
+    end
+
+    Note over User,Dexcom: ── One-Time Setup Flow (OAuth2 Authorization Code Grant) ──
+
+    rect rgb(60, 50, 30)
+        User->>MCP: GET /oauth/start (browser)
+        MCP->>User: Redirect → api.dexcom.com/v3/oauth2/login<br/>?client_id=...&redirect_uri=localhost:8080/callback<br/>&response_type=code&scope=offline_access
+        User->>Dexcom: Authenticate + HIPAA consent
+        Dexcom->>MCP: Redirect → /callback?code={auth_code}
+        MCP->>Dexcom: POST /v3/oauth2/token<br/>(exchange auth_code for tokens)
+        Dexcom-->>MCP: access_token + refresh_token
+        MCP->>MCP: Encrypt tokens → /data/tokens.enc
+        MCP-->>User: "Authorization complete. You can close this tab."
+    end

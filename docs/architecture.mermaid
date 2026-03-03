@@ -1,0 +1,120 @@
+---
+title: "CGM Get Agent — System Architecture"
+---
+graph TB
+    subgraph clients["CLIENT LAYER"]
+        direction LR
+        claude["Claude<br/>(claude.ai / Claude Code)"]
+        chatgpt["ChatGPT<br/>(OpenAI API)"]
+    end
+
+    subgraph docker["DOCKER (Colima / arm64)"]
+        direction TB
+
+        subgraph container["glucose-advisor container"]
+            direction TB
+
+            subgraph transport["Transport Layer"]
+                mcp_handler["MCP Protocol Handler<br/>(SSE + stdio)"]
+                rest_shim["REST Shim<br/>(OpenAI Function Calling Adapter)"]
+            end
+
+            subgraph router["Tool Router"]
+                direction LR
+                t1["get_current_glucose"]
+                t2["get_glucose_history"]
+                t3["get_trend"]
+                t4["log_meal"]
+                t5["log_exercise"]
+                t6["rate_meal_impact"]
+            end
+
+            subgraph core["Core Services"]
+                direction LR
+                dexcom_client["Dexcom Client<br/>(OAuth2 + REST)"]
+                analyzer["Glucose Analyzer<br/>(spike calc, correlation,<br/>meal rating)"]
+                store["SQLite Store<br/>(meals, exercise,<br/>glucose cache)"]
+            end
+
+            subgraph auth["Auth & Config"]
+                direction LR
+                oauth["OAuth2 Handler<br/>(token lifecycle)"]
+                config["Config Loader<br/>(YAML + env vars)"]
+                crypto["Token Encryption<br/>(AES-256-GCM)"]
+            end
+        end
+
+        subgraph volume["Host Volume: ~/.glucose-advisor"]
+            direction LR
+            db["data.db<br/>(SQLite)"]
+            tokens["tokens.enc<br/>(encrypted OAuth tokens)"]
+            cfg["config.yaml"]
+        end
+    end
+
+    subgraph dexcom["DEXCOM DEVELOPER PLATFORM"]
+        direction TB
+        dex_auth["OAuth2 Endpoints<br/>POST /v3/oauth2/login<br/>POST /v3/oauth2/token"]
+        dex_egvs["GET /v3/users/self/egvs<br/>(EGV + trend + trendRate)"]
+        dex_events["GET /v3/users/self/events<br/>(carbs, exercise, health)"]
+        dex_range["GET /v3/users/self/dataRange<br/>(earliest/latest records)"]
+        dex_devices["GET /v3/users/self/devices<br/>(G7 device info)"]
+    end
+
+    subgraph cgm["DEXCOM G7 SENSOR"]
+        g7["Dexcom G7<br/>(on body)"]
+        phone["iOS App<br/>(Dexcom G7)"]
+    end
+
+    %% Client connections
+    claude -->|"MCP/SSE<br/>localhost:8080/mcp"| mcp_handler
+    chatgpt -->|"REST/JSON<br/>localhost:8080/v1/tools/*"| rest_shim
+
+    %% Transport to router
+    mcp_handler --> router
+    rest_shim --> router
+
+    %% Router to services
+    t1 --> dexcom_client
+    t2 --> dexcom_client
+    t3 --> dexcom_client
+    t4 --> store
+    t5 --> store
+    t6 --> dexcom_client
+    t6 --> store
+    t6 --> analyzer
+
+    %% Core interconnections
+    dexcom_client --> oauth
+    oauth --> crypto
+    crypto --> tokens
+    store --> db
+    config --> cfg
+    analyzer --> store
+    analyzer --> dexcom_client
+
+    %% External connections
+    dexcom_client -->|"HTTPS<br/>(Bearer token)"| dex_egvs
+    dexcom_client -->|"HTTPS"| dex_events
+    dexcom_client -->|"HTTPS"| dex_range
+    dexcom_client -->|"HTTPS"| dex_devices
+    oauth -->|"HTTPS<br/>(OAuth2 grant)"| dex_auth
+
+    %% CGM data flow
+    g7 -->|"Bluetooth LE"| phone
+    phone -->|"Cloud sync<br/>(1hr US delay)"| dexcom
+
+    %% Styling
+    classDef clientNode fill:#4A90D9,stroke:#2C5F8A,color:#fff
+    classDef containerNode fill:#2D2D2D,stroke:#555,color:#fff
+    classDef dexcomNode fill:#6B8E23,stroke:#4A6316,color:#fff
+    classDef cgmNode fill:#D4A843,stroke:#A67C00,color:#000
+    classDef storageNode fill:#8B5CF6,stroke:#6D28D9,color:#fff
+    classDef toolNode fill:#059669,stroke:#047857,color:#fff
+
+    class claude,chatgpt clientNode
+    class mcp_handler,rest_shim,dexcom_client,analyzer,oauth,config,crypto containerNode
+    class dex_auth,dex_egvs,dex_events,dex_range,dex_devices dexcomNode
+    class g7,phone cgmNode
+    class db,tokens,cfg storageNode
+    class t1,t2,t3,t4,t5,t6 toolNode
