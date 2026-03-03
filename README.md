@@ -32,7 +32,7 @@ An MCP (Model Context Protocol) server that connects LLMs (Claude, ChatGPT) to a
 ### 1. Clone and configure
 
 ```bash
-git clone https://github.com/yourusername/cgm-get-agent
+git clone https://github.com/johnmartinez/cgm-get-agent
 cd cgm-get-agent
 
 cp .env.example .env

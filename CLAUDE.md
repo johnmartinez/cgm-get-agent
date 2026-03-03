@@ -38,7 +38,7 @@ Canonical spec: `SPEC.md`. This file is the source of truth. Never deviate from 
 
 ### Phase 1 — Scaffolding (branch: `feat/scaffolding`)
 Files to create:
-- `go.mod` — module `github.com/yourusername/cgm-get-agent`, Go 1.22
+- `go.mod` — module `github.com/johnmartinez/cgm-get-agent`, Go 1.22
 - `.gitignore` — see Security Gitignore section below
 - `.env.example` — placeholder values only
 - `Dockerfile` — multi-stage, CGO enabled, arm64-native
@@ -208,7 +208,7 @@ Data endpoints:
 
 ## Go Module Name
 
-`github.com/jmverleger/cgm-get-agent` (or match the actual GitHub repo URL — update if different)
+`github.com/johnmartinez/cgm-get-agent`
 
 ---
 
