@@ -32,6 +32,12 @@ CGM Get Agent runs as a local Docker container that exposes your Dexcom G7 data 
 1. Sign in at [developer.dexcom.com](https://developer.dexcom.com).
 2. Create a new application.
 3. Set the **Redirect URI** to: `http://localhost:8080/callback`
+   > **Using a different port?** If port 8080 is already in use on your machine, choose another port (e.g. 8090) and set the Redirect URI to `http://localhost:8090/callback` instead. Then add both overrides to `.env`:
+   > ```bash
+   > GA_SERVER_PORT=8090
+   > GA_DEXCOM_REDIRECT_URI=http://localhost:8090/callback
+   > ```
+   > The Dexcom developer portal Redirect URI and `GA_DEXCOM_REDIRECT_URI` must match exactly.
 4. Copy your **Client ID** and **Client Secret** — you'll need them in Step 3.
 
 > **Sandbox vs. Production**: The Dexcom sandbox provides simulated G7 data with no real CGM required. Start with sandbox (`GA_DEXCOM_ENV=sandbox`) to verify everything works, then switch to production for live readings.
@@ -216,6 +222,14 @@ Your refresh token expired (rare). Re-authorize: `open http://localhost:8080/oau
 **Tools show stale data notice**
 Normal for US mobile users — the Dexcom cloud has a ~1 hour delay for G7 data uploaded via iOS. Data uploaded from a Dexcom receiver via USB arrives immediately.
 
+**Port 8080 already in use**
+Set both port vars in `.env` and update your Dexcom app's Redirect URI to match:
+```bash
+GA_SERVER_PORT=8090
+GA_DEXCOM_REDIRECT_URI=http://localhost:8090/callback
+```
+Then replace every `8080` reference in this guide with your chosen port.
+
 **Container won't start**
 ```bash
 docker compose logs cgm-get-agent
@@ -234,7 +248,7 @@ docker compose up -d
 
 When you're ready to use live CGM data:
 
-1. Register a **production** app at [developer.dexcom.com](https://developer.dexcom.com) with redirect URI `http://localhost:8080/callback`.
+1. Register a **production** app at [developer.dexcom.com](https://developer.dexcom.com) with redirect URI matching `GA_DEXCOM_REDIRECT_URI` (default: `http://localhost:8080/callback`).
 2. Update `.env`:
    ```bash
    GA_DEXCOM_CLIENT_ID=your-production-client-id

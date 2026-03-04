@@ -96,11 +96,18 @@ Now ask Claude: *"What's my glucose right now?"*
 | `GA_DEXCOM_CLIENT_SECRET` | **Yes** | — | Dexcom developer app client secret |
 | `GA_ENCRYPTION_KEY` | **Yes** | — | 32-byte hex-encoded AES-256 key |
 | `GA_DEXCOM_ENV` | No | `sandbox` | `sandbox` or `production` |
+| `GA_DEXCOM_REDIRECT_URI` | No | `http://localhost:8080/callback` | OAuth redirect URI — change if port 8080 is in use |
 | `GA_MCP_TRANSPORT` | No | `sse` | `sse` or `stdio` |
 | `GA_SERVER_PORT` | No | `8080` | HTTP listen port |
 | `GA_DB_PATH` | No | `/data/data.db` | SQLite database path |
 | `GA_TOKEN_PATH` | No | `/data/tokens.enc` | Encrypted token file path |
 | `GA_CONFIG_PATH` | No | `/data/config.yaml` | Optional YAML config override |
+
+> **Port conflict?** If port 8080 is already in use, set both `GA_SERVER_PORT` and `GA_DEXCOM_REDIRECT_URI` together in `.env` and update your Dexcom developer app's Redirect URI to match:
+> ```bash
+> GA_SERVER_PORT=8090
+> GA_DEXCOM_REDIRECT_URI=http://localhost:8090/callback
+> ```
 
 See `.env.example` for a template.
 
