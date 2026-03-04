@@ -1,0 +1,248 @@
+# CGM Get Agent — Quick Start
+
+Connect your Dexcom G7 CGM to Claude Desktop or ChatGPT Desktop in about 15 minutes.
+
+---
+
+## What This Does
+
+CGM Get Agent runs as a local Docker container that exposes your Dexcom G7 data as MCP tools. Once connected, you can ask Claude or ChatGPT questions like:
+
+- *"What's my glucose right now and where is it headed?"*
+- *"I just had a bowl of oatmeal — log it and tell me what I'm starting from."*
+- *"How did that burrito I had at lunch hit me?"*
+- *"Did my CGM alarm go off last night?"*
+
+---
+
+## Prerequisites
+
+| Requirement | Notes |
+|---|---|
+| macOS (Apple Silicon) | Intel Mac works with minor Dockerfile changes |
+| [Colima](https://github.com/abiosoft/colima) + Docker CLI | `brew install colima docker docker-compose` |
+| Dexcom G7 + iOS app | Active sensor and Dexcom cloud account required |
+| [Dexcom developer account](https://developer.dexcom.com) | Free to register |
+| Claude Desktop or ChatGPT Desktop | Any recent version with MCP support |
+
+---
+
+## Step 1 — Register a Dexcom Developer App
+
+1. Sign in at [developer.dexcom.com](https://developer.dexcom.com).
+2. Create a new application.
+3. Set the **Redirect URI** to: `http://localhost:8080/callback`
+4. Copy your **Client ID** and **Client Secret** — you'll need them in Step 3.
+
+> **Sandbox vs. Production**: The Dexcom sandbox provides simulated G7 data with no real CGM required. Start with sandbox (`GA_DEXCOM_ENV=sandbox`) to verify everything works, then switch to production for live readings.
+
+---
+
+## Step 2 — Install and Configure
+
+```bash
+# Clone the repo
+git clone https://github.com/johnmartinez/cgm-get-agent.git
+cd cgm-get-agent
+
+# Create the data directory
+mkdir -p ~/.cgm-get-agent
+chmod 700 ~/.cgm-get-agent
+
+# Copy and fill in the environment file
+cp .env.example .env
+```
+
+Edit `.env` with your values:
+
+```bash
+GA_DEXCOM_CLIENT_ID=your-client-id-from-dexcom
+GA_DEXCOM_CLIENT_SECRET=your-client-secret-from-dexcom
+GA_DEXCOM_ENV=sandbox          # or "production" for live CGM data
+GA_ENCRYPTION_KEY=$(openssl rand -hex 32)
+```
+
+> **Keep `.env` private.** It is gitignored and must never be committed.
+
+---
+
+## Step 3 — Start the Container
+
+```bash
+# Start Colima if it isn't already running
+colima start --arch aarch64 --vm-type vz
+
+# Build and start the agent
+docker compose up --build -d
+
+# Confirm it's healthy
+docker compose ps
+curl http://localhost:8080/health
+```
+
+Expected health response before OAuth:
+
+```json
+{"status":"degraded","dexcom_auth":"not_configured","db_accessible":true,"uptime_seconds":3}
+```
+
+---
+
+## Step 4 — Authorize Dexcom (One-Time)
+
+1. Open **http://localhost:8080/oauth/start** in your browser.
+2. Log in to your Dexcom account and complete the HIPAA authorization screen.
+3. You'll be redirected back with a success message.
+
+Verify authorization succeeded:
+
+```bash
+curl http://localhost:8080/health
+```
+
+```json
+{"status":"ok","dexcom_auth":"valid","db_accessible":true,"uptime_seconds":42}
+```
+
+OAuth tokens are encrypted with AES-256-GCM and stored at `~/.cgm-get-agent/tokens.enc`. They are never logged or sent anywhere except to Dexcom's API.
+
+---
+
+## Step 5 — Connect Claude Desktop
+
+Edit Claude Desktop's MCP config file:
+
+**`~/Library/Application Support/Claude/claude_desktop_config.json`**
+
+```json
+{
+  "mcpServers": {
+    "cgm-get-agent": {
+      "type": "sse",
+      "url": "http://localhost:8080/sse"
+    }
+  }
+}
+```
+
+Restart Claude Desktop. You should see **cgm-get-agent** appear in the tools panel (the hammer icon). The 11 tools will be listed there.
+
+> **Alternatively — stdio transport (Claude Code CLI only):**
+> ```bash
+> claude mcp add --transport sse cgm-get-agent http://localhost:8080/sse
+> ```
+> Or for stdio (runs a fresh server process per session):
+> ```bash
+> claude mcp add cgm-get-agent -- docker exec -e GA_MCP_TRANSPORT=stdio -i cgm-get-agent cgm-get-agent serve
+> ```
+
+---
+
+## Step 6 — Connect ChatGPT Desktop
+
+ChatGPT Desktop supports MCP via SSE. To add the server:
+
+1. Open **ChatGPT Desktop** → **Settings** → **Connectors** (or **MCP Servers**).
+2. Add a new server with URL: `http://localhost:8080/sse`
+3. Name it `cgm-get-agent`.
+4. Save and restart ChatGPT Desktop.
+
+The 11 tools will be available automatically in any conversation.
+
+> If your version of ChatGPT Desktop uses a config file instead of the UI, create or edit:
+> **`~/Library/Application Support/ChatGPT/mcp.json`**
+> ```json
+> {
+>   "servers": [
+>     {
+>       "name": "cgm-get-agent",
+>       "transport": "sse",
+>       "url": "http://localhost:8080/sse"
+>     }
+>   ]
+> }
+> ```
+
+---
+
+## Test It
+
+Try these prompts after connecting:
+
+```
+What's my glucose right now?
+```
+
+```
+I just had two slices of sourdough toast with peanut butter. Log it and show me my current trend.
+```
+
+```
+Did my Dexcom alarm go off at any point last night?
+```
+
+```
+How did the meal I logged at lunch impact my glucose? Give it a rating.
+```
+
+---
+
+## Available Tools
+
+| Tool | Description |
+|---|---|
+| `get_current_glucose` | Current reading + trend + optional history window |
+| `get_glucose_history` | Historical EGVs for a date range (max 30 days) |
+| `get_trend` | Trend arrow, rate of change, and glucose zone |
+| `get_dexcom_events` | Events logged in the G7 app (carbs, insulin, exercise, health) |
+| `get_calibrations` | Fingerstick calibration records |
+| `get_alerts` | CGM alert history (high, low, urgent low, rise, fall, etc.) |
+| `get_devices` | G7 transmitter and display device info |
+| `get_data_range` | Earliest/latest timestamps for each data type |
+| `log_meal` | Log a meal locally with optional macro estimates |
+| `log_exercise` | Log an exercise session locally |
+| `rate_meal_impact` | Analyze glucose impact of a logged meal (1–10 rating) |
+
+---
+
+## Troubleshooting
+
+**Health shows `dexcom_auth: not_configured`**
+Visit `http://localhost:8080/oauth/start` and complete the Dexcom authorization flow.
+
+**Health shows `dexcom_auth: expired`**
+Your refresh token expired (rare). Re-authorize: `open http://localhost:8080/oauth/start`
+
+**Tools show stale data notice**
+Normal for US mobile users — the Dexcom cloud has a ~1 hour delay for G7 data uploaded via iOS. Data uploaded from a Dexcom receiver via USB arrives immediately.
+
+**Container won't start**
+```bash
+docker compose logs cgm-get-agent
+```
+Most common cause: missing or incorrect values in `.env`.
+
+**Restart after reboot**
+```bash
+colima start --arch aarch64 --vm-type vz
+docker compose up -d
+```
+
+---
+
+## Switching to Production
+
+When you're ready to use live CGM data:
+
+1. Register a **production** app at [developer.dexcom.com](https://developer.dexcom.com) with redirect URI `http://localhost:8080/callback`.
+2. Update `.env`:
+   ```bash
+   GA_DEXCOM_CLIENT_ID=your-production-client-id
+   GA_DEXCOM_CLIENT_SECRET=your-production-client-secret
+   GA_DEXCOM_ENV=production
+   ```
+3. Restart and re-authorize:
+   ```bash
+   docker compose up --build -d
+   open http://localhost:8080/oauth/start
+   ```
