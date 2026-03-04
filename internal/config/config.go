@@ -105,6 +105,9 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("GA_DEXCOM_ENV"); v != "" {
 		cfg.Dexcom.Environment = v
 	}
+	if v := os.Getenv("GA_DEXCOM_REDIRECT_URI"); v != "" {
+		cfg.Dexcom.RedirectURI = v
+	}
 	if v := os.Getenv("GA_SERVER_PORT"); v != "" {
 		if p, err := strconv.Atoi(v); err == nil {
 			cfg.Server.Port = p
