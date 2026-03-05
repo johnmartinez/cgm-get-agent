@@ -44,11 +44,11 @@ This document memorializes the phased build plan for the `cgm-get-agent` project
 
 | File | Purpose |
 |---|---|
-| `go.mod` | Go module declaration, Go 1.22, dependency stubs |
+| `go.mod` | Go module declaration, Go 1.24, dependency stubs |
 | `go.sum` | Generated on `go mod tidy` |
 | `.gitignore` | Excludes `.env`, `*.enc`, `data.db`, `config.yaml`, `~/.cgm-get-agent/` |
 | `.env.example` | Placeholder values for all `GA_*` env vars — safe to commit |
-| `Dockerfile` | Multi-stage build: `golang:1.22-alpine` builder → `alpine:3.19` runtime; CGO enabled; arm64-native |
+| `Dockerfile` | Multi-stage build: `golang:1.24-alpine` builder → `alpine:3.19` runtime; CGO enabled; arm64-native |
 | `docker-compose.yaml` | Service `cgm-get-agent`, volume `~/.cgm-get-agent:/data`, `env_file: .env`, healthcheck |
 
 **Acceptance criteria:**

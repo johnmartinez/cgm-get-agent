@@ -542,7 +542,7 @@ Tool errors are returned as `mcp.CallToolResult` with `IsError: true` and a `Tex
 ### 5.1 Dockerfile (multi-stage, arm64-native)
 
 ```
-Stage 1: golang:1.22-alpine AS builder
+Stage 1: golang:1.24-alpine AS builder
     - Install: gcc, musl-dev, sqlite-dev (CGO required for mattn/go-sqlite3)
     - WORKDIR /src
     - Copy go.mod, go.sum → go mod download

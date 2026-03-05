@@ -12,7 +12,7 @@ An MCP (Model Context Protocol) server that connects LLMs (Claude, ChatGPT) to a
 
 ## Stack
 
-- **Go 1.22** — single binary, CGO for SQLite
+- **Go 1.24** — single binary, CGO for SQLite
 - **MCP** — primary protocol (`github.com/modelcontextprotocol/go-sdk/mcp`), SSE + stdio transports
 - **REST shim** — OpenAI function-calling compatibility at `/v1/tools/invoke`
 - **Dexcom API v3** — OAuth2, EGV/event data from Dexcom G7
@@ -25,7 +25,7 @@ An MCP (Model Context Protocol) server that connects LLMs (Claude, ChatGPT) to a
 - macOS (Apple Silicon recommended)
 - [Colima](https://github.com/abiosoft/colima) + Docker CLI (`brew install colima docker docker-compose`)
 - A [Dexcom Developer account](https://developer.dexcom.com/) — create an app to get `client_id` and `client_secret`
-- Go 1.22+ (for local development only; not needed for Docker builds)
+- Go 1.24+ (for local development only; not needed for Docker builds)
 
 ## Quick Start
 
