@@ -265,16 +265,16 @@ func TestGetDataRange_Success(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		resp := dataRangeResponse{
 			EGVs: timeRangeJSON{
-				Start: "2026-03-01T00:00:00",
-				End:   "2026-03-03T10:00:00",
+				Start: flexString("2026-03-01T00:00:00"),
+				End:   flexString("2026-03-03T10:00:00"),
 			},
 			Events: timeRangeJSON{
-				Start: "2026-03-01T00:00:00",
-				End:   "2026-03-03T09:00:00",
+				Start: flexString("2026-03-01T00:00:00"),
+				End:   flexString("2026-03-03T09:00:00"),
 			},
 			Calibrations: timeRangeJSON{
-				Start: "2026-03-01T00:00:00",
-				End:   "2026-03-02T00:00:00",
+				Start: flexString("2026-03-01T00:00:00"),
+				End:   flexString("2026-03-02T00:00:00"),
 			},
 		}
 		w.Header().Set("Content-Type", "application/json")
@@ -291,6 +291,44 @@ func TestGetDataRange_Success(t *testing.T) {
 	wantEnd := time.Date(2026, 3, 3, 10, 0, 0, 0, time.UTC)
 	if !dr.EGVs.End.Equal(wantEnd) {
 		t.Errorf("EGVs.End: got %v, want %v", dr.EGVs.End, wantEnd)
+	}
+}
+
+// TestGetDataRange_NonStringFields verifies that object/null start/end fields
+// (returned by some Dexcom sandbox users) do not cause an unmarshal error.
+// Fixes: "json: cannot unmarshal object into Go struct field timeRangeJSON.calibrations.start of type string"
+func TestGetDataRange_NonStringFields(t *testing.T) {
+	// Raw JSON with calibrations.start as an object and calibrations.end as null.
+	rawResp := `{
+		"egvs":         {"start":"2026-03-01T00:00:00","end":"2026-03-03T10:00:00"},
+		"events":       {"start":"2026-03-01T00:00:00","end":"2026-03-03T09:00:00"},
+		"calibrations": {"start":{},"end":null}
+	}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(rawResp))
+	}))
+	defer srv.Close()
+
+	client, _ := newTestClient(t, srv)
+	dr, err := client.GetDataRange(context.Background())
+	if err != nil {
+		t.Fatalf("GetDataRange: unexpected error with non-string fields: %v", err)
+	}
+
+	// EGVs should parse normally.
+	wantEGVEnd := time.Date(2026, 3, 3, 10, 0, 0, 0, time.UTC)
+	if !dr.EGVs.End.Equal(wantEGVEnd) {
+		t.Errorf("EGVs.End: got %v, want %v", dr.EGVs.End, wantEGVEnd)
+	}
+
+	// Calibrations with object/null start/end should produce zero times (no data).
+	if !dr.Calibrations.Start.IsZero() {
+		t.Errorf("Calibrations.Start: got %v, want zero time", dr.Calibrations.Start)
+	}
+	if !dr.Calibrations.End.IsZero() {
+		t.Errorf("Calibrations.End: got %v, want zero time", dr.Calibrations.End)
 	}
 }
 

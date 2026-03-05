@@ -5,6 +5,8 @@ package mcp
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"net/http"
 	"time"
 
@@ -59,6 +61,72 @@ func (s *Server) SSEHandler() http.Handler {
 // RunStdio runs the MCP server on stdin/stdout (blocks until ctx is cancelled).
 func (s *Server) RunStdio(ctx context.Context) error {
 	return s.mcpServer.Run(ctx, &sdkmcp.StdioTransport{})
+}
+
+// InvokeTool dispatches a named tool call and returns its result as JSON bytes.
+// isError is true when the tool itself returned an error result.
+// Implements rest.ToolInvoker so the REST shim can call tools without an MCP client.
+func (s *Server) InvokeTool(ctx context.Context, name string, params json.RawMessage) (json.RawMessage, bool, error) {
+	if params == nil {
+		params = json.RawMessage(`{}`)
+	}
+
+	var result *sdkmcp.CallToolResult
+	var err error
+
+	switch name {
+	case "get_current_glucose":
+		var args getCurrentGlucoseInput
+		json.Unmarshal(params, &args) //nolint:errcheck
+		result, _, err = s.handleGetCurrentGlucose(ctx, args)
+	case "get_glucose_history":
+		var args getDateRangeInput
+		json.Unmarshal(params, &args) //nolint:errcheck
+		result, _, err = s.handleGetGlucoseHistory(ctx, args)
+	case "get_trend":
+		result, _, err = s.handleGetTrend(ctx)
+	case "get_dexcom_events":
+		var args getDateRangeInput
+		json.Unmarshal(params, &args) //nolint:errcheck
+		result, _, err = s.handleGetDexcomEvents(ctx, args)
+	case "get_calibrations":
+		var args getDateRangeInput
+		json.Unmarshal(params, &args) //nolint:errcheck
+		result, _, err = s.handleGetCalibrations(ctx, args)
+	case "get_alerts":
+		var args getDateRangeInput
+		json.Unmarshal(params, &args) //nolint:errcheck
+		result, _, err = s.handleGetAlerts(ctx, args)
+	case "get_devices":
+		result, _, err = s.handleGetDevices(ctx)
+	case "get_data_range":
+		result, _, err = s.handleGetDataRange(ctx)
+	case "log_meal":
+		var args logMealInput
+		json.Unmarshal(params, &args) //nolint:errcheck
+		result, _, err = s.handleLogMeal(ctx, args)
+	case "log_exercise":
+		var args logExerciseInput
+		json.Unmarshal(params, &args) //nolint:errcheck
+		result, _, err = s.handleLogExercise(ctx, args)
+	case "rate_meal_impact":
+		var args rateMealImpactInput
+		json.Unmarshal(params, &args) //nolint:errcheck
+		result, _, err = s.handleRateMealImpact(ctx, args)
+	default:
+		return nil, true, fmt.Errorf("unknown tool: %s", name)
+	}
+
+	if err != nil {
+		return nil, true, err
+	}
+	if result == nil || len(result.Content) == 0 {
+		return json.RawMessage(`{}`), false, nil
+	}
+	if tc, ok := result.Content[0].(*sdkmcp.TextContent); ok {
+		return json.RawMessage(tc.Text), result.IsError, nil
+	}
+	return json.RawMessage(`{}`), result.IsError, nil
 }
 
 func (s *Server) registerTools() {

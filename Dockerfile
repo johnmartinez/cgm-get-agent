@@ -1,6 +1,6 @@
 # Stage 1: Build
 # CGO is required for mattn/go-sqlite3.
-FROM --platform=linux/arm64 golang:1.22-alpine AS builder
+FROM --platform=linux/arm64 golang:1.24-alpine AS builder
 
 RUN apk add --no-cache gcc musl-dev sqlite-dev
 

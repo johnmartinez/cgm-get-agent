@@ -59,7 +59,7 @@ func main() {
 	}
 
 	// SSE mode: HTTP server with MCP, OAuth, health, and tool-invoke endpoints.
-	restHandler := rest.New(oauth, st, mcpServer.StartTime())
+	restHandler := rest.New(oauth, st, mcpServer.StartTime(), mcpServer)
 
 	mux := http.NewServeMux()
 	mux.Handle("/sse", mcpServer.SSEHandler())
