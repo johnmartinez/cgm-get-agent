@@ -21,10 +21,11 @@ Canonical spec: `SPEC.md`. This file is the source of truth. Never deviate from 
 
 ### Git Workflow
 - Always branch from `main` before any code changes.
-- Branch naming: `feat/<feature-name>`, `fix/<issue>`, `test/<scope>`.
+- Branch naming: `feat/<feature-name>`, `fix/<issue-number>`, `test/<scope>`, `docs/<scope>`.
 - Commit message format: `<type>(<scope>): <summary>` (conventional commits).
 - Push every branch to origin before opening PR or merging.
 - Never force-push `main`.
+- When asked to fix something: create a GitHub issue first (`gh issue create`), infer title/description/labels from the prompt, then branch as `fix/<issue-number>`, fix, PR, and merge referencing the issue.
 
 ### Code Quality
 - All packages must have `_test.go` files covering core logic.
