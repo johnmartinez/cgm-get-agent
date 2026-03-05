@@ -2,10 +2,13 @@ package rest_test
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -15,6 +18,17 @@ import (
 	"github.com/johnmartinez/cgm-get-agent/internal/store"
 	"github.com/johnmartinez/cgm-get-agent/internal/types"
 )
+
+// mockInvoker is a test double for rest.ToolInvoker.
+type mockInvoker struct {
+	result  json.RawMessage
+	isError bool
+	err     error
+}
+
+func (m *mockInvoker) InvokeTool(_ context.Context, _ string, _ json.RawMessage) (json.RawMessage, bool, error) {
+	return m.result, m.isError, m.err
+}
 
 var testKey = bytes.Repeat([]byte{0xCD}, 32)
 
@@ -30,6 +44,7 @@ func testStore(t *testing.T) *store.Store {
 
 // newRestHandler creates a rest.Handler with a dexcom oauth backed by tokenPath.
 // dexcomSrv is used as the base URL (needed if GetValidToken triggers a refresh).
+// Passes nil invoker — tests that need REST tool dispatch should build the handler directly.
 func newRestHandler(t *testing.T, tokenPath string, dexcomSrv *httptest.Server) *rest.Handler {
 	t.Helper()
 	var httpClient *http.Client
@@ -42,7 +57,7 @@ func newRestHandler(t *testing.T, tokenPath string, dexcomSrv *httptest.Server) 
 		baseURL = "http://127.0.0.1:0" // unreachable; token should not need refresh
 	}
 	_, oauth := dexcom.NewClientForTest(baseURL, tokenPath, testKey, httpClient)
-	return rest.New(oauth, testStore(t), time.Now())
+	return rest.New(oauth, testStore(t), time.Now(), nil)
 }
 
 // --- HandleHealth ---
@@ -162,7 +177,9 @@ func TestHandleHealth_ContentTypeJSON(t *testing.T) {
 
 // --- HandleToolInvoke ---
 
-func TestHandleToolInvoke_ReturnsNotImplemented(t *testing.T) {
+// TestHandleToolInvoke_NilInvoker verifies that a handler without an invoker
+// (e.g. stdio-only mode) returns 501 with a helpful UsesMCPTransport message.
+func TestHandleToolInvoke_NilInvoker(t *testing.T) {
 	tokenPath := filepath.Join(t.TempDir(), "tokens.enc")
 	h := newRestHandler(t, tokenPath, nil)
 
@@ -190,5 +207,60 @@ func TestHandleToolInvoke_RejectsNonPOST(t *testing.T) {
 		if rec.Code != http.StatusMethodNotAllowed {
 			t.Errorf("%s: expected 405, got %d", method, rec.Code)
 		}
+	}
+}
+
+// TestHandleToolInvoke_WithInvoker verifies that a wired handler dispatches the
+// tool call and returns structured JSON with "tool", "result", and "is_error".
+func TestHandleToolInvoke_WithInvoker(t *testing.T) {
+	tokenPath := filepath.Join(t.TempDir(), "tokens.enc")
+	_, oauth := dexcom.NewClientForTest("http://127.0.0.1:0", tokenPath, testKey, &http.Client{})
+
+	invoker := &mockInvoker{result: json.RawMessage(`{"trend":"flat","value":105}`)}
+	h := rest.New(oauth, testStore(t), time.Now(), invoker)
+
+	body := strings.NewReader(`{"tool":"get_trend","params":{}}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/tools/invoke", body)
+	rec := httptest.NewRecorder()
+	h.HandleToolInvoke(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("expected 200, got %d: %s", rec.Code, rec.Body.String())
+	}
+
+	var resp map[string]any
+	if err := json.NewDecoder(rec.Body).Decode(&resp); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if resp["tool"] != "get_trend" {
+		t.Errorf("tool: got %v, want get_trend", resp["tool"])
+	}
+	if resp["is_error"] != false {
+		t.Errorf("is_error: got %v, want false", resp["is_error"])
+	}
+	if resp["result"] == nil {
+		t.Error("result must be present")
+	}
+}
+
+// TestHandleToolInvoke_UnknownTool verifies that a dispatch error (unknown tool
+// name) is returned as 400 with an error body rather than panicking or 500.
+func TestHandleToolInvoke_UnknownTool(t *testing.T) {
+	tokenPath := filepath.Join(t.TempDir(), "tokens.enc")
+	_, oauth := dexcom.NewClientForTest("http://127.0.0.1:0", tokenPath, testKey, &http.Client{})
+
+	invoker := &mockInvoker{err: fmt.Errorf("unknown tool: no_such_tool")}
+	h := rest.New(oauth, testStore(t), time.Now(), invoker)
+
+	body := strings.NewReader(`{"tool":"no_such_tool","params":{}}`)
+	req := httptest.NewRequest(http.MethodPost, "/v1/tools/invoke", body)
+	rec := httptest.NewRecorder()
+	h.HandleToolInvoke(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Errorf("expected 400, got %d", rec.Code)
+	}
+	if !bytes.Contains(rec.Body.Bytes(), []byte("ToolError")) {
+		t.Errorf("body should contain ToolError, got: %s", rec.Body.String())
 	}
 }
