@@ -2,7 +2,10 @@
 // and HTTP handlers for the OAuth2 authorization code flow.
 package dexcom
 
-import "fmt"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // API base URLs.
 const (
@@ -150,9 +153,29 @@ type dataRangeResponse struct {
 	Events       timeRangeJSON `json:"events"`
 }
 
+// flexString unmarshals a JSON string, null, or any non-string value (object,
+// number, etc.) into a Go string. Non-string values — including null and objects
+// returned by some Dexcom sandbox users — are silently mapped to "".
+type flexString string
+
+func (f *flexString) UnmarshalJSON(b []byte) error {
+	if len(b) == 0 || string(b) == "null" {
+		*f = ""
+		return nil
+	}
+	var s string
+	if err := json.Unmarshal(b, &s); err == nil {
+		*f = flexString(s)
+		return nil
+	}
+	// Non-string JSON value (object, array, number) — treat as no data.
+	*f = ""
+	return nil
+}
+
 type timeRangeJSON struct {
-	Start string `json:"start"`
-	End   string `json:"end"`
+	Start flexString `json:"start"`
+	End   flexString `json:"end"`
 }
 
 // devicesResponse is the JSON envelope from GET /v3/users/self/devices.

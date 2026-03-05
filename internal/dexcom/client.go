@@ -83,16 +83,16 @@ func (c *Client) GetDataRange(ctx context.Context) (types.DataRange, error) {
 
 	return types.DataRange{
 		Calibrations: types.TimeRange{
-			Start: parseTime(resp.Calibrations.Start),
-			End:   parseTime(resp.Calibrations.End),
+			Start: parseTime(string(resp.Calibrations.Start)),
+			End:   parseTime(string(resp.Calibrations.End)),
 		},
 		EGVs: types.TimeRange{
-			Start: parseTime(resp.EGVs.Start),
-			End:   parseTime(resp.EGVs.End),
+			Start: parseTime(string(resp.EGVs.Start)),
+			End:   parseTime(string(resp.EGVs.End)),
 		},
 		Events: types.TimeRange{
-			Start: parseTime(resp.Events.Start),
-			End:   parseTime(resp.Events.End),
+			Start: parseTime(string(resp.Events.Start)),
+			End:   parseTime(string(resp.Events.End)),
 		},
 	}, nil
 }
