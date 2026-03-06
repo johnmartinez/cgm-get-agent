@@ -3,14 +3,15 @@ services:
     build: .
     container_name: cgm-get-agent
     ports:
-      - "8080:8080"
+      # Must match GA_SERVER_PORT in .env (default: 8090)
+      - "8090:8090"
     volumes:
       - ~/.cgm-get-agent:/data
     env_file:
       - .env
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8090/health"]
       interval: 30s
       timeout: 5s
       retries: 3

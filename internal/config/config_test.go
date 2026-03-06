@@ -115,8 +115,8 @@ func TestLoad_Defaults(t *testing.T) {
 	if cfg.Dexcom.Environment != "sandbox" {
 		t.Errorf("expected default environment=sandbox, got %q", cfg.Dexcom.Environment)
 	}
-	if cfg.Server.Port != 8080 {
-		t.Errorf("expected default port=8080, got %d", cfg.Server.Port)
+	if cfg.Server.Port != 8090 {
+		t.Errorf("expected default port=8090, got %d", cfg.Server.Port)
 	}
 	if cfg.Storage.DBPath != "/data/data.db" {
 		t.Errorf("expected default db_path, got %q", cfg.Storage.DBPath)
