@@ -31,8 +31,8 @@ CGM Get Agent runs as a local Docker container that exposes your Dexcom G7 data 
 
 1. Sign in at [developer.dexcom.com](https://developer.dexcom.com).
 2. Create a new application.
-3. Set the **Redirect URI** to: `http://localhost:8080/callback`
-   > **Using a different port?** If port 8080 is already in use on your machine, choose another port (e.g. 8090) and set the Redirect URI to `http://localhost:8090/callback` instead. Then add both overrides to `.env`:
+3. Set the **Redirect URI** to: `http://localhost:8090/callback`
+   > **Using a different port?** If port 8090 is already in use on your machine, choose another port (e.g. 8090) and set the Redirect URI to `http://localhost:8090/callback` instead. Then add both overrides to `.env`:
    > ```bash
    > GA_SERVER_PORT=8090
    > GA_DEXCOM_REDIRECT_URI=http://localhost:8090/callback
@@ -83,7 +83,7 @@ docker compose up --build -d
 
 # Confirm it's healthy
 docker compose ps
-curl http://localhost:8080/health
+curl http://localhost:8090/health
 ```
 
 Expected health response before OAuth:
@@ -96,14 +96,14 @@ Expected health response before OAuth:
 
 ## Step 4 — Authorize Dexcom (One-Time)
 
-1. Open **http://localhost:8080/oauth/start** in your browser.
+1. Open **http://localhost:8090/oauth/start** in your browser.
 2. Log in to your Dexcom account and complete the HIPAA authorization screen.
 3. You'll be redirected back with a success message.
 
 Verify authorization succeeded:
 
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:8090/health
 ```
 
 ```json
@@ -116,6 +116,10 @@ OAuth tokens are encrypted with AES-256-GCM and stored at `~/.cgm-get-agent/toke
 
 ## Step 5 — Connect Claude Desktop
 
+Claude Desktop only supports stdio transport in its local config — it cannot connect to an SSE endpoint directly. Use `mcp-remote` (via npx) as a stdio-to-SSE bridge.
+
+**Prerequisite:** Node.js must be installed (`brew install node`).
+
 Edit Claude Desktop's MCP config file:
 
 **`~/Library/Application Support/Claude/claude_desktop_config.json`**
@@ -124,8 +128,13 @@ Edit Claude Desktop's MCP config file:
 {
   "mcpServers": {
     "cgm-get-agent": {
-      "type": "sse",
-      "url": "http://localhost:8080/sse"
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "http://localhost:8090/sse",
+        "--transport",
+        "sse-only"
+      ]
     }
   }
 }
@@ -133,9 +142,9 @@ Edit Claude Desktop's MCP config file:
 
 Restart Claude Desktop. You should see **cgm-get-agent** appear in the tools panel (the hammer icon). The 11 tools will be listed there.
 
-> **Alternatively — stdio transport (Claude Code CLI only):**
+> **Claude Code CLI (SSE, no bridge needed):**
 > ```bash
-> claude mcp add --transport sse cgm-get-agent http://localhost:8080/sse
+> claude mcp add --transport sse cgm-get-agent http://localhost:8090/sse
 > ```
 > Or for stdio (runs a fresh server process per session):
 > ```bash
@@ -149,7 +158,7 @@ Restart Claude Desktop. You should see **cgm-get-agent** appear in the tools pan
 ChatGPT Desktop supports MCP via SSE. To add the server:
 
 1. Open **ChatGPT Desktop** → **Settings** → **Connectors** (or **MCP Servers**).
-2. Add a new server with URL: `http://localhost:8080/sse`
+2. Add a new server with URL: `http://localhost:8090/sse`
 3. Name it `cgm-get-agent`.
 4. Save and restart ChatGPT Desktop.
 
@@ -163,7 +172,7 @@ The 11 tools will be available automatically in any conversation.
 >     {
 >       "name": "cgm-get-agent",
 >       "transport": "sse",
->       "url": "http://localhost:8080/sse"
+>       "url": "http://localhost:8090/sse"
 >     }
 >   ]
 > }
@@ -214,21 +223,21 @@ How did the meal I logged at lunch impact my glucose? Give it a rating.
 ## Troubleshooting
 
 **Health shows `dexcom_auth: not_configured`**
-Visit `http://localhost:8080/oauth/start` and complete the Dexcom authorization flow.
+Visit `http://localhost:8090/oauth/start` and complete the Dexcom authorization flow.
 
 **Health shows `dexcom_auth: expired`**
-Your refresh token expired (rare). Re-authorize: `open http://localhost:8080/oauth/start`
+Your refresh token expired (rare). Re-authorize: `open http://localhost:8090/oauth/start`
 
 **Tools show stale data notice**
 Normal for US mobile users — the Dexcom cloud has a ~1 hour delay for G7 data uploaded via iOS. Data uploaded from a Dexcom receiver via USB arrives immediately.
 
-**Port 8080 already in use**
+**Port 8090 already in use**
 Set both port vars in `.env` and update your Dexcom app's Redirect URI to match:
 ```bash
 GA_SERVER_PORT=8090
 GA_DEXCOM_REDIRECT_URI=http://localhost:8090/callback
 ```
-Then replace every `8080` reference in this guide with your chosen port.
+Then replace every `8090` reference in this guide with your chosen port.
 
 **Container won't start**
 ```bash
@@ -248,7 +257,7 @@ docker compose up -d
 
 When you're ready to use live CGM data:
 
-1. Register a **production** app at [developer.dexcom.com](https://developer.dexcom.com) with redirect URI matching `GA_DEXCOM_REDIRECT_URI` (default: `http://localhost:8080/callback`).
+1. Register a **production** app at [developer.dexcom.com](https://developer.dexcom.com) with redirect URI matching `GA_DEXCOM_REDIRECT_URI` (default: `http://localhost:8090/callback`).
 2. Update `.env`:
    ```bash
    GA_DEXCOM_CLIENT_ID=your-production-client-id
@@ -258,5 +267,5 @@ When you're ready to use live CGM data:
 3. Restart and re-authorize:
    ```bash
    docker compose up --build -d
-   open http://localhost:8080/oauth/start
+   open http://localhost:8090/oauth/start
    ```
