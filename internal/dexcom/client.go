@@ -3,6 +3,7 @@ package dexcom
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -171,6 +172,9 @@ func (c *Client) doJSON(ctx context.Context, endpoint string, dst any) error {
 
 	resp, err := c.httpClient.Do(req)
 	if err != nil {
+		if errors.Is(err, context.DeadlineExceeded) || isTimeoutError(err) {
+			return &TimeoutError{Message: err.Error()}
+		}
 		return fmt.Errorf("dexcom: HTTP request: %w", err)
 	}
 	defer resp.Body.Close()
@@ -287,4 +291,12 @@ func convertAlert(a apiAlert) (types.AlertRecord, error) {
 		AlertName:   types.AlertType(a.AlertName),
 		AlertState:  types.AlertState(a.AlertState),
 	}, nil
+}
+
+// isTimeoutError checks whether an error is a net.Error with Timeout() == true.
+// This catches http.Client deadline exceeded via the net package timeout interface.
+func isTimeoutError(err error) bool {
+	type timeout interface{ Timeout() bool }
+	var t timeout
+	return errors.As(err, &t) && t.Timeout()
 }
