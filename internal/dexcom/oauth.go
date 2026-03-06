@@ -6,6 +6,8 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"strings"
@@ -71,6 +73,10 @@ func (h *OAuthHandler) HandleStart(w http.ResponseWriter, r *http.Request) {
 		"scope":         {"offline_access"},
 		"state":         {state},
 	}
+	slog.Error("oauth start redirect",
+		"redirect_uri_in_auth_request", h.redirectURI,
+		"base_url", h.baseURL,
+	)
 	http.Redirect(w, r, h.baseURL+"/v3/oauth2/login?"+params.Encode(), http.StatusFound)
 }
 
@@ -79,9 +85,18 @@ func (h *OAuthHandler) HandleStart(w http.ResponseWriter, r *http.Request) {
 //
 // GET /callback?code=...&state=...
 func (h *OAuthHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
+	callbackTime := time.Now().UTC()
 	q := r.URL.Query()
+	slog.Error("oauth callback received",
+		"query", r.URL.RawQuery,
+		"callback_time", callbackTime.Format(time.RFC3339Nano),
+	)
 
 	if errParam := q.Get("error"); errParam != "" {
+		slog.Error("oauth callback error from Dexcom",
+			"error", errParam,
+			"error_description", q.Get("error_description"),
+		)
 		http.Error(w, "Dexcom authorization failed: "+errParam, http.StatusBadRequest)
 		return
 	}
@@ -94,6 +109,7 @@ func (h *OAuthHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 
 	tokens, err := h.exchangeCode(r.Context(), q.Get("code"))
 	if err != nil {
+		slog.Error("oauth token exchange failed", "error", err.Error())
 		http.Error(w, "token exchange failed: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -177,6 +193,14 @@ func (h *OAuthHandler) doRefresh(ctx context.Context, refreshToken string) (type
 
 // exchangeCode performs the authorization_code grant: code → access_token + refresh_token.
 func (h *OAuthHandler) exchangeCode(ctx context.Context, code string) (types.OAuthTokens, error) {
+	codePreview := code
+	if len(codePreview) > 8 {
+		codePreview = codePreview[:8] + "..."
+	}
+	slog.Error("oauth exchangeCode starting",
+		"code_preview", codePreview,
+		"redirect_uri", h.redirectURI,
+	)
 	return h.doTokenRequest(ctx, url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {code},
@@ -188,9 +212,27 @@ func (h *OAuthHandler) exchangeCode(ctx context.Context, code string) (types.OAu
 
 // doTokenRequest POSTs form-encoded params to the Dexcom token endpoint.
 func (h *OAuthHandler) doTokenRequest(ctx context.Context, params url.Values) (types.OAuthTokens, error) {
+	tokenURL := h.baseURL + "/v3/oauth2/token"
+
+	// Log request details (mask client_secret).
+	maskedSecret := params.Get("client_secret")
+	if len(maskedSecret) > 4 {
+		maskedSecret = maskedSecret[:4] + "****"
+	}
+	slog.Error("oauth token request",
+		"url", tokenURL,
+		"grant_type", params.Get("grant_type"),
+		"client_id", params.Get("client_id"),
+		"client_secret_masked", maskedSecret,
+		"redirect_uri", params.Get("redirect_uri"),
+		"has_code", params.Get("code") != "",
+		"has_refresh_token", params.Get("refresh_token") != "",
+		"request_time", time.Now().UTC().Format(time.RFC3339Nano),
+	)
+
 	req, err := http.NewRequestWithContext(
 		ctx, http.MethodPost,
-		h.baseURL+"/v3/oauth2/token",
+		tokenURL,
 		strings.NewReader(params.Encode()),
 	)
 	if err != nil {
@@ -198,15 +240,32 @@ func (h *OAuthHandler) doTokenRequest(ctx context.Context, params url.Values) (t
 	}
 	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
 
+	startTime := time.Now()
 	resp, err := h.httpClient.Do(req)
+	elapsed := time.Since(startTime)
 	if err != nil {
+		slog.Error("oauth token request failed",
+			"error", err.Error(),
+			"elapsed_ms", elapsed.Milliseconds(),
+		)
 		return types.OAuthTokens{}, fmt.Errorf("dexcom: token request: %w", err)
 	}
 	defer resp.Body.Close()
 
+	slog.Error("oauth token response",
+		"status", resp.StatusCode,
+		"elapsed_ms", elapsed.Milliseconds(),
+		"response_time", time.Now().UTC().Format(time.RFC3339Nano),
+	)
+
 	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		slog.Error("oauth token endpoint error",
+			"status", resp.StatusCode,
+			"response_body", string(body),
+		)
 		return types.OAuthTokens{}, &AuthError{
-			Message: fmt.Sprintf("token endpoint returned HTTP %d", resp.StatusCode),
+			Message: fmt.Sprintf("token endpoint returned HTTP %d: %s", resp.StatusCode, string(body)),
 		}
 	}
 
