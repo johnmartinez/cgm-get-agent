@@ -50,6 +50,14 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("dexcom: API error %d: %s", e.StatusCode, e.Body)
 }
 
+// TimeoutError indicates that a Dexcom API request exceeded the HTTP client timeout.
+// Retriable — the API may respond on a subsequent attempt.
+type TimeoutError struct {
+	Message string
+}
+
+func (e *TimeoutError) Error() string { return "dexcom: timeout: " + e.Message }
+
 // WindowTooLargeError is returned when a requested date range exceeds 30 days.
 type WindowTooLargeError struct {
 	RequestedDays int

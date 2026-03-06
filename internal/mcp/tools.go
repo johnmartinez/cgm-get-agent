@@ -92,6 +92,10 @@ func classifyDexcomError(err error) (*sdkmcp.CallToolResult, any, error) {
 	if errors.As(err, &authErr) {
 		return errResult("DexcomAuthError", authErr.Message, false)
 	}
+	var timeoutErr *dexcom.TimeoutError
+	if errors.As(err, &timeoutErr) {
+		return errResult("DexcomTimeoutError", timeoutErr.Error(), true)
+	}
 	var apiErr *dexcom.APIError
 	if errors.As(err, &apiErr) {
 		return errResult("DexcomAPIError", apiErr.Error(), apiErr.StatusCode >= 500)
@@ -115,9 +119,12 @@ func (s *Server) handleGetCurrentGlucose(ctx context.Context, args getCurrentGlu
 
 	egvs, err := s.client.GetEGVs(ctx, start, end)
 	if err != nil {
-		// Graceful degradation: on 5xx, fall back to cached EGVs.
+		// Graceful degradation: on 5xx or timeout, fall back to cached EGVs.
 		var apiErr *dexcom.APIError
-		if errors.As(err, &apiErr) && apiErr.StatusCode >= 500 {
+		var timeoutErr *dexcom.TimeoutError
+		isServerErr := errors.As(err, &apiErr) && apiErr.StatusCode >= 500
+		isTimeout := errors.As(err, &timeoutErr)
+		if isServerErr || isTimeout {
 			cached, cacheErr := s.store.GetCachedEGVs(start, end)
 			if cacheErr == nil && len(cached) > 0 {
 				snapshot, snapErr := analyzer.ComputeSnapshot(cached, s.cfg.GlucoseZones)
