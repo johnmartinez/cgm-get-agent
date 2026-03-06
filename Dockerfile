@@ -25,6 +25,6 @@ RUN apk add --no-cache ca-certificates sqlite-libs wget
 
 COPY --from=builder /cgm-get-agent /usr/local/bin/cgm-get-agent
 
-EXPOSE 8080
+EXPOSE 8090
 
 ENTRYPOINT ["cgm-get-agent", "serve"]

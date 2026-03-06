@@ -53,14 +53,14 @@ colima start --arch aarch64 --vm-type vz  # start Colima (first time)
 docker compose up --build
 ```
 
-The server starts on `http://localhost:8080`.
+The server starts on `http://localhost:8090`.
 
 ### 3. Authorize Dexcom (one-time)
 
 Open in your browser:
 
 ```
-http://localhost:8080/oauth/start
+http://localhost:8090/oauth/start
 ```
 
 You'll be redirected to Dexcom to log in and grant HIPAA consent. After completing the flow, tokens are encrypted and stored locally. You will not need to repeat this unless tokens are revoked.
@@ -68,19 +68,43 @@ You'll be redirected to Dexcom to log in and grant HIPAA consent. After completi
 Verify auth status:
 
 ```bash
-curl http://localhost:8080/health
+curl http://localhost:8090/health
 # {"status":"ok","dexcom_auth":"valid","db_accessible":true,"uptime_seconds":14}
 ```
 
 ### 4. Connect to Claude
 
-**Option A — SSE (recommended for claude.ai or Claude desktop):**
+**Option A — Claude Code CLI (SSE, recommended):**
 
 ```bash
-claude mcp add --transport sse cgm-get-agent http://localhost:8080/mcp
+claude mcp add --transport sse cgm-get-agent http://localhost:8090/sse
 ```
 
-**Option B — stdio (for Claude Code CLI, lower latency):**
+**Option B — Claude Desktop (requires mcp-remote bridge):**
+
+Claude Desktop only supports stdio transport in its local config. Use `mcp-remote` (via npx) as a stdio-to-SSE bridge.
+
+Prerequisite: Node.js must be installed (`brew install node`).
+
+Add to your Claude Desktop MCP config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "cgm-get-agent": {
+      "command": "npx",
+      "args": [
+        "mcp-remote",
+        "http://localhost:8090/sse",
+        "--transport",
+        "sse-only"
+      ]
+    }
+  }
+}
+```
+
+**Option C — stdio (lowest latency, no HTTP):**
 
 ```bash
 claude mcp add cgm-get-agent -- docker exec -i cgm-get-agent cgm-get-agent serve --transport stdio
@@ -96,14 +120,14 @@ Now ask Claude: *"What's my glucose right now?"*
 | `GA_DEXCOM_CLIENT_SECRET` | **Yes** | — | Dexcom developer app client secret |
 | `GA_ENCRYPTION_KEY` | **Yes** | — | 32-byte hex-encoded AES-256 key |
 | `GA_DEXCOM_ENV` | No | `sandbox` | `sandbox` or `production` |
-| `GA_DEXCOM_REDIRECT_URI` | No | `http://localhost:8080/callback` | OAuth redirect URI — change if port 8080 is in use |
+| `GA_DEXCOM_REDIRECT_URI` | No | `http://localhost:8090/callback` | OAuth redirect URI — must match `GA_SERVER_PORT` |
 | `GA_MCP_TRANSPORT` | No | `sse` | `sse` or `stdio` |
-| `GA_SERVER_PORT` | No | `8080` | HTTP listen port |
+| `GA_SERVER_PORT` | No | `8090` | HTTP listen port |
 | `GA_DB_PATH` | No | `/data/data.db` | SQLite database path |
 | `GA_TOKEN_PATH` | No | `/data/tokens.enc` | Encrypted token file path |
 | `GA_CONFIG_PATH` | No | `/data/config.yaml` | Optional YAML config override |
 
-> **Port conflict?** If port 8080 is already in use, set both `GA_SERVER_PORT` and `GA_DEXCOM_REDIRECT_URI` together in `.env` and update your Dexcom developer app's Redirect URI to match:
+> **Port conflict?** If port 8090 is already in use, set both `GA_SERVER_PORT` and `GA_DEXCOM_REDIRECT_URI` together in `.env` and update your Dexcom developer app's Redirect URI to match:
 > ```bash
 > GA_SERVER_PORT=8090
 > GA_DEXCOM_REDIRECT_URI=http://localhost:8090/callback
@@ -145,7 +169,7 @@ For development, use `GA_DEXCOM_ENV=sandbox` (default). The Dexcom sandbox provi
 GA_DEXCOM_ENV=production
 
 docker compose up --build
-open http://localhost:8080/oauth/start   # re-authorize with real credentials
+open http://localhost:8090/oauth/start   # re-authorize with real credentials
 ```
 
 ## Data & Privacy
@@ -154,7 +178,7 @@ open http://localhost:8080/oauth/start   # re-authorize with real credentials
 - OAuth tokens are AES-256-GCM encrypted in `~/.cgm-get-agent/tokens.enc`.
 - The host volume `~/.cgm-get-agent` should be `chmod 700`.
 - No data is transmitted to any third party other than the Dexcom API.
-- Never expose port 8080 directly to the internet. Use Tailscale or WireGuard for remote access.
+- Never expose port 8090 directly to the internet. Use Tailscale or WireGuard for remote access.
 
 ## Development
 

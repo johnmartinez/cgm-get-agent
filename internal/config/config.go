@@ -71,8 +71,8 @@ func Load() (*Config, error) {
 func defaults() *Config {
 	cfg := &Config{}
 	cfg.Dexcom.Environment = "sandbox"
-	cfg.Dexcom.RedirectURI = "http://localhost:8080/callback"
-	cfg.Server.Port = 8080
+	cfg.Dexcom.RedirectURI = "http://localhost:8090/callback"
+	cfg.Server.Port = 8090
 	cfg.Server.Host = "0.0.0.0"
 	cfg.Storage.DBPath = "/data/data.db"
 	cfg.Storage.TokenPath = "/data/tokens.enc"
