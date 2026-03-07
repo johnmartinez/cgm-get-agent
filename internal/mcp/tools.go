@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
+	"runtime/debug"
 	"time"
 
 	sdkmcp "github.com/modelcontextprotocol/go-sdk/mcp"
@@ -110,6 +112,12 @@ func classifyDexcomError(err error) (*sdkmcp.CallToolResult, any, error) {
 // --- Tool handlers ---
 
 func (s *Server) handleGetCurrentGlucose(ctx context.Context, args getCurrentGlucoseInput) (*sdkmcp.CallToolResult, any, error) {
+	slog.Error("TOOL HANDLER ENTERED", "tool", "get_current_glucose")
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("TOOL HANDLER PANIC", "tool", "get_current_glucose", "panic", r, "stack", string(debug.Stack()))
+		}
+	}()
 	histMinutes := args.HistoryMinutes
 	if histMinutes <= 0 {
 		histMinutes = 60
@@ -154,6 +162,12 @@ func (s *Server) handleGetCurrentGlucose(ctx context.Context, args getCurrentGlu
 }
 
 func (s *Server) handleGetGlucoseHistory(ctx context.Context, args getDateRangeInput) (*sdkmcp.CallToolResult, any, error) {
+	slog.Error("TOOL HANDLER ENTERED", "tool", "get_glucose_history")
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("TOOL HANDLER PANIC", "tool", "get_glucose_history", "panic", r, "stack", string(debug.Stack()))
+		}
+	}()
 	start, err := parseDate(args.StartDate)
 	if err != nil {
 		return errResult("InvalidInput", "start_date: "+err.Error(), false)
@@ -171,6 +185,12 @@ func (s *Server) handleGetGlucoseHistory(ctx context.Context, args getDateRangeI
 }
 
 func (s *Server) handleGetTrend(ctx context.Context) (*sdkmcp.CallToolResult, any, error) {
+	slog.Error("TOOL HANDLER ENTERED", "tool", "get_trend")
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("TOOL HANDLER PANIC", "tool", "get_trend", "panic", r, "stack", string(debug.Stack()))
+		}
+	}()
 	end := time.Now().UTC()
 	start := end.Add(-15 * time.Minute)
 
@@ -200,6 +220,12 @@ func (s *Server) handleGetTrend(ctx context.Context) (*sdkmcp.CallToolResult, an
 }
 
 func (s *Server) handleGetDexcomEvents(ctx context.Context, args getDateRangeInput) (*sdkmcp.CallToolResult, any, error) {
+	slog.Error("TOOL HANDLER ENTERED", "tool", "get_dexcom_events")
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("TOOL HANDLER PANIC", "tool", "get_dexcom_events", "panic", r, "stack", string(debug.Stack()))
+		}
+	}()
 	start, err := parseDate(args.StartDate)
 	if err != nil {
 		return errResult("InvalidInput", "start_date: "+err.Error(), false)
@@ -217,6 +243,12 @@ func (s *Server) handleGetDexcomEvents(ctx context.Context, args getDateRangeInp
 }
 
 func (s *Server) handleGetCalibrations(ctx context.Context, args getDateRangeInput) (*sdkmcp.CallToolResult, any, error) {
+	slog.Error("TOOL HANDLER ENTERED", "tool", "get_calibrations")
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("TOOL HANDLER PANIC", "tool", "get_calibrations", "panic", r, "stack", string(debug.Stack()))
+		}
+	}()
 	start, err := parseDate(args.StartDate)
 	if err != nil {
 		return errResult("InvalidInput", "start_date: "+err.Error(), false)
@@ -234,6 +266,12 @@ func (s *Server) handleGetCalibrations(ctx context.Context, args getDateRangeInp
 }
 
 func (s *Server) handleGetAlerts(ctx context.Context, args getDateRangeInput) (*sdkmcp.CallToolResult, any, error) {
+	slog.Error("TOOL HANDLER ENTERED", "tool", "get_alerts")
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("TOOL HANDLER PANIC", "tool", "get_alerts", "panic", r, "stack", string(debug.Stack()))
+		}
+	}()
 	start, err := parseDate(args.StartDate)
 	if err != nil {
 		return errResult("InvalidInput", "start_date: "+err.Error(), false)
@@ -251,6 +289,12 @@ func (s *Server) handleGetAlerts(ctx context.Context, args getDateRangeInput) (*
 }
 
 func (s *Server) handleGetDevices(ctx context.Context) (*sdkmcp.CallToolResult, any, error) {
+	slog.Error("TOOL HANDLER ENTERED", "tool", "get_devices")
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("TOOL HANDLER PANIC", "tool", "get_devices", "panic", r, "stack", string(debug.Stack()))
+		}
+	}()
 	devices, err := s.client.GetDevices(ctx)
 	if err != nil {
 		return classifyDexcomError(err)
@@ -259,6 +303,12 @@ func (s *Server) handleGetDevices(ctx context.Context) (*sdkmcp.CallToolResult, 
 }
 
 func (s *Server) handleGetDataRange(ctx context.Context) (*sdkmcp.CallToolResult, any, error) {
+	slog.Error("TOOL HANDLER ENTERED", "tool", "get_data_range")
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("TOOL HANDLER PANIC", "tool", "get_data_range", "panic", r, "stack", string(debug.Stack()))
+		}
+	}()
 	dr, err := s.client.GetDataRange(ctx)
 	if err != nil {
 		return classifyDexcomError(err)
@@ -267,6 +317,12 @@ func (s *Server) handleGetDataRange(ctx context.Context) (*sdkmcp.CallToolResult
 }
 
 func (s *Server) handleLogMeal(ctx context.Context, args logMealInput) (*sdkmcp.CallToolResult, any, error) {
+	slog.Error("TOOL HANDLER ENTERED", "tool", "log_meal")
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("TOOL HANDLER PANIC", "tool", "log_meal", "panic", r, "stack", string(debug.Stack()))
+		}
+	}()
 	if args.Description == "" {
 		return errResult("InvalidInput", "description is required", false)
 	}
@@ -297,6 +353,12 @@ func (s *Server) handleLogMeal(ctx context.Context, args logMealInput) (*sdkmcp.
 }
 
 func (s *Server) handleLogExercise(_ context.Context, args logExerciseInput) (*sdkmcp.CallToolResult, any, error) {
+	slog.Error("TOOL HANDLER ENTERED", "tool", "log_exercise")
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("TOOL HANDLER PANIC", "tool", "log_exercise", "panic", r, "stack", string(debug.Stack()))
+		}
+	}()
 	if args.Type == "" {
 		return errResult("InvalidInput", "type is required", false)
 	}
@@ -332,6 +394,12 @@ func (s *Server) handleLogExercise(_ context.Context, args logExerciseInput) (*s
 }
 
 func (s *Server) handleRateMealImpact(ctx context.Context, args rateMealImpactInput) (*sdkmcp.CallToolResult, any, error) {
+	slog.Error("TOOL HANDLER ENTERED", "tool", "rate_meal_impact")
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("TOOL HANDLER PANIC", "tool", "rate_meal_impact", "panic", r, "stack", string(debug.Stack()))
+		}
+	}()
 	if args.MealID == "" {
 		return errResult("InvalidInput", "meal_id is required", false)
 	}
