@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/url"
 	"time"
@@ -158,38 +159,63 @@ func (c *Client) GetAlerts(ctx context.Context, start, end time.Time) ([]types.A
 // doJSON performs a GET with a Bearer token and JSON-decodes the response into dst.
 // Returns AuthError on 401, APIError on other non-2xx responses.
 func (c *Client) doJSON(ctx context.Context, endpoint string, dst any) error {
-	token, err := c.oauth.GetValidToken(ctx)
-	if err != nil {
-		return err
+	slog.Error("DEBUG doJSON: getting valid token", "endpoint", endpoint)
+
+	// Check context before starting
+	if ctx.Err() != nil {
+		slog.Error("DEBUG doJSON: context already cancelled before GetValidToken", "endpoint", endpoint, "ctx_err", ctx.Err())
+		return fmt.Errorf("dexcom: context cancelled: %w", ctx.Err())
 	}
 
+	token, err := c.oauth.GetValidToken(ctx)
+	if err != nil {
+		slog.Error("DEBUG doJSON: GetValidToken failed", "endpoint", endpoint, "error", err)
+		return err
+	}
+	tokenPreview := token
+	if len(tokenPreview) > 8 {
+		tokenPreview = tokenPreview[:8] + "..."
+	}
+	slog.Error("DEBUG doJSON: got valid token", "endpoint", endpoint, "token_prefix", tokenPreview)
+
+	slog.Error("DEBUG doJSON: building HTTP request", "endpoint", endpoint)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
+		slog.Error("DEBUG doJSON: failed to build request", "endpoint", endpoint, "error", err)
 		return fmt.Errorf("dexcom: building request: %w", err)
 	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Accept", "application/json")
 
+	slog.Error("DEBUG doJSON: executing HTTP request", "endpoint", endpoint, "method", "GET")
+	httpStart := time.Now()
 	resp, err := c.httpClient.Do(req)
+	httpElapsed := time.Since(httpStart)
 	if err != nil {
+		slog.Error("DEBUG doJSON: HTTP request failed", "endpoint", endpoint, "error", err, "elapsed_ms", httpElapsed.Milliseconds())
 		if errors.Is(err, context.DeadlineExceeded) || isTimeoutError(err) {
 			return &TimeoutError{Message: err.Error()}
 		}
 		return fmt.Errorf("dexcom: HTTP request: %w", err)
 	}
 	defer resp.Body.Close()
+	slog.Error("DEBUG doJSON: HTTP response received", "endpoint", endpoint, "status", resp.StatusCode, "elapsed_ms", httpElapsed.Milliseconds())
 
 	if resp.StatusCode == http.StatusUnauthorized {
 		return &AuthError{Message: "access token rejected — re-authorization may be required"}
 	}
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
+		slog.Error("DEBUG doJSON: non-200 response", "endpoint", endpoint, "status", resp.StatusCode, "body", string(body))
 		return &APIError{StatusCode: resp.StatusCode, Body: string(body)}
 	}
 
+	slog.Error("DEBUG doJSON: decoding JSON response", "endpoint", endpoint)
 	if err := json.NewDecoder(resp.Body).Decode(dst); err != nil {
+		slog.Error("DEBUG doJSON: JSON decode failed", "endpoint", endpoint, "error", err)
 		return fmt.Errorf("dexcom: decoding response: %w", err)
 	}
+	slog.Error("DEBUG doJSON: success", "endpoint", endpoint)
 	return nil
 }
 

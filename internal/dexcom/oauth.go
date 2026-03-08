@@ -129,10 +129,13 @@ func (h *OAuthHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 // GetValidToken returns a valid Dexcom access token, refreshing transparently if needed.
 // Safe for concurrent use.
 func (h *OAuthHandler) GetValidToken(ctx context.Context) (string, error) {
+	slog.Error("DEBUG GetValidToken: entering")
 	tokens, err := h.refreshIfNeeded(ctx)
 	if err != nil {
+		slog.Error("DEBUG GetValidToken: refreshIfNeeded failed", "error", err)
 		return "", err
 	}
+	slog.Error("DEBUG GetValidToken: returning valid token")
 	return tokens.AccessToken, nil
 }
 
@@ -152,29 +155,40 @@ func (h *OAuthHandler) LoadTokens() (types.OAuthTokens, error) {
 // refreshIfNeeded loads tokens from disk, refreshes if expiring within 5 minutes,
 // and returns valid tokens. The mutex ensures only one refresh happens concurrently.
 func (h *OAuthHandler) refreshIfNeeded(ctx context.Context) (types.OAuthTokens, error) {
+	slog.Error("DEBUG refreshIfNeeded: acquiring mutex")
 	h.mu.Lock()
+	slog.Error("DEBUG refreshIfNeeded: mutex acquired")
 	defer h.mu.Unlock()
 
+	slog.Error("DEBUG refreshIfNeeded: loading tokens from disk", "path", h.tokenPath)
 	// Always re-read from disk inside the lock: another goroutine may have already refreshed.
 	tokens, err := crypto.LoadTokens(h.tokenPath, h.encKey)
 	if err != nil {
+		slog.Error("DEBUG refreshIfNeeded: LoadTokens failed", "error", err)
 		return types.OAuthTokens{}, &AuthError{
 			Message: "no tokens found — visit /oauth/start to authorize",
 		}
 	}
+	slog.Error("DEBUG refreshIfNeeded: tokens loaded", "expires_at", tokens.ExpiresAt, "time_until_expiry", time.Until(tokens.ExpiresAt).String())
 
 	if time.Until(tokens.ExpiresAt) > 5*time.Minute {
+		slog.Error("DEBUG refreshIfNeeded: tokens still fresh, returning")
 		return tokens, nil // still fresh
 	}
 
+	slog.Error("DEBUG refreshIfNeeded: tokens expiring soon, refreshing")
 	refreshed, err := h.doRefresh(ctx, tokens.RefreshToken)
 	if err != nil {
+		slog.Error("DEBUG refreshIfNeeded: doRefresh failed", "error", err)
 		return types.OAuthTokens{}, fmt.Errorf("dexcom: refreshing token: %w", err)
 	}
 
+	slog.Error("DEBUG refreshIfNeeded: saving refreshed tokens")
 	if err := crypto.SaveTokens(h.tokenPath, refreshed, h.encKey); err != nil {
+		slog.Error("DEBUG refreshIfNeeded: SaveTokens failed", "error", err)
 		return types.OAuthTokens{}, fmt.Errorf("dexcom: saving refreshed tokens: %w", err)
 	}
+	slog.Error("DEBUG refreshIfNeeded: refresh complete")
 	return refreshed, nil
 }
 

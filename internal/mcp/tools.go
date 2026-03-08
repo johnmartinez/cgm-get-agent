@@ -295,11 +295,27 @@ func (s *Server) handleGetDevices(ctx context.Context) (*sdkmcp.CallToolResult, 
 			slog.Error("TOOL HANDLER PANIC", "tool", "get_devices", "panic", r, "stack", string(debug.Stack()))
 		}
 	}()
+
+	// Check context state at entry
+	slog.Error("DEBUG get_devices: context check", "deadline_set", ctx.Err() == nil, "ctx_err", ctx.Err())
+	if deadline, ok := ctx.Deadline(); ok {
+		slog.Error("DEBUG get_devices: context has deadline", "deadline", deadline, "remaining", time.Until(deadline).String())
+	} else {
+		slog.Error("DEBUG get_devices: context has NO deadline")
+	}
+
+	slog.Error("DEBUG get_devices: calling s.client.GetDevices")
 	devices, err := s.client.GetDevices(ctx)
 	if err != nil {
+		slog.Error("DEBUG get_devices: GetDevices returned error", "error", err)
 		return classifyDexcomError(err)
 	}
-	return jsonResult(devices)
+	slog.Error("DEBUG get_devices: GetDevices returned success", "device_count", len(devices))
+
+	slog.Error("DEBUG get_devices: marshaling result")
+	result, extra, retErr := jsonResult(devices)
+	slog.Error("DEBUG get_devices: returning result", "is_error", result != nil && result.IsError, "has_content", result != nil && len(result.Content) > 0)
+	return result, extra, retErr
 }
 
 func (s *Server) handleGetDataRange(ctx context.Context) (*sdkmcp.CallToolResult, any, error) {
@@ -309,11 +325,23 @@ func (s *Server) handleGetDataRange(ctx context.Context) (*sdkmcp.CallToolResult
 			slog.Error("TOOL HANDLER PANIC", "tool", "get_data_range", "panic", r, "stack", string(debug.Stack()))
 		}
 	}()
+
+	slog.Error("DEBUG get_data_range: context check", "ctx_err", ctx.Err())
+	if deadline, ok := ctx.Deadline(); ok {
+		slog.Error("DEBUG get_data_range: context has deadline", "remaining", time.Until(deadline).String())
+	}
+
+	slog.Error("DEBUG get_data_range: calling s.client.GetDataRange")
 	dr, err := s.client.GetDataRange(ctx)
 	if err != nil {
+		slog.Error("DEBUG get_data_range: GetDataRange returned error", "error", err)
 		return classifyDexcomError(err)
 	}
-	return jsonResult(dr)
+	slog.Error("DEBUG get_data_range: GetDataRange returned success")
+
+	result, extra, retErr := jsonResult(dr)
+	slog.Error("DEBUG get_data_range: returning result", "has_content", result != nil && len(result.Content) > 0)
+	return result, extra, retErr
 }
 
 func (s *Server) handleLogMeal(ctx context.Context, args logMealInput) (*sdkmcp.CallToolResult, any, error) {
