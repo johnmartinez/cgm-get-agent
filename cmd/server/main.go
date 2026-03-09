@@ -25,7 +25,7 @@ func main() {
 
 	cfg, err := config.Load()
 	if err != nil {
-		slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError})).Error("config load failed", "error", err)
+		slog.New(slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelError})).Error("config load failed", "error", err)
 		os.Exit(1)
 	}
 
@@ -55,6 +55,15 @@ func main() {
 	transport := os.Getenv("GA_MCP_TRANSPORT")
 	if transport == "" {
 		transport = "sse"
+	}
+
+	if transport == "stdio" {
+		slog.SetDefault(slog.New(
+			slog.NewJSONHandler(os.Stderr, &slog.HandlerOptions{
+				Level: slogLevel,
+			}),
+		))
+		logger = slog.Default()
 	}
 
 	if transport == "stdio" {
