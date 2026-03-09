@@ -101,7 +101,7 @@ func mockEGVsJSON(baseTime time.Time, values []int) string {
 		RateUnit    string  `json:"rateUnit"`
 	}
 	type envelope struct {
-		EGVs []egv `json:"egvs"`
+		EGVs []egv `json:"records"`
 	}
 
 	env := envelope{}
@@ -248,7 +248,7 @@ func TestScenario3_MealImpactRating(t *testing.T) {
 		{RecordID: "peak", SystemTime: mealTime.Add(45 * time.Minute).Format(dexcomFmt), DisplayTime: mealTime.Add(45 * time.Minute).Format(dexcomFmt), Value: 140, Trend: "singleUp", Unit: "mg/dL", RateUnit: "mg/dL/min"},
 		{RecordID: "rec", SystemTime: mealTime.Add(120 * time.Minute).Format(dexcomFmt), DisplayTime: mealTime.Add(120 * time.Minute).Format(dexcomFmt), Value: 95, Trend: "flat", Unit: "mg/dL", RateUnit: "mg/dL/min"},
 	}
-	body, _ := json.Marshal(map[string]any{"egvs": egvs})
+	body, _ := json.Marshal(map[string]any{"records": egvs})
 
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -373,7 +373,7 @@ func TestScenario5_DexcomAppEvents(t *testing.T) {
 		Value        *float64 `json:"value,omitempty"`
 		Unit         string   `json:"unit"`
 	}
-	resp := map[string]any{"events": []apiEvt{
+	resp := map[string]any{"records": []apiEvt{
 		{RecordID: "ev-1", SystemTime: base.Format(dexcomFmt), DisplayTime: base.Format(dexcomFmt), EventType: "carbs", Value: &carbVal, Unit: "grams"},
 		{RecordID: "ev-2", SystemTime: base.Add(5 * time.Minute).Format(dexcomFmt), DisplayTime: base.Add(5 * time.Minute).Format(dexcomFmt), EventType: "insulin", EventSubType: &subType, Value: &insulinVal, Unit: "units"},
 	}}
@@ -430,7 +430,7 @@ func TestScenario6_AlertHistoryReview(t *testing.T) {
 		AlertName   string `json:"alertName"`
 		AlertState  string `json:"alertState"`
 	}
-	resp := map[string]any{"alerts": []apiAlert{
+	resp := map[string]any{"records": []apiAlert{
 		{RecordID: "al-1", SystemTime: base.Format(dexcomFmt), DisplayTime: base.Format(dexcomFmt), AlertName: "high", AlertState: "triggered"},
 		{RecordID: "al-2", SystemTime: base.Add(30 * time.Minute).Format(dexcomFmt), DisplayTime: base.Add(30 * time.Minute).Format(dexcomFmt), AlertName: "urgentLow", AlertState: "triggered"},
 	}}
@@ -491,7 +491,7 @@ func TestScenario7_CalibrationReview(t *testing.T) {
 		DisplayDevice         string `json:"displayDevice"`
 		DisplayApp            string `json:"displayApp"`
 	}
-	resp := map[string]any{"calibrations": []apiCal{
+	resp := map[string]any{"records": []apiCal{
 		{RecordID: "cal-1", SystemTime: base.Format(dexcomFmt), DisplayTime: base.Format(dexcomFmt), Value: 108, Unit: "mg/dL", TransmitterID: "tx-1", TransmitterGeneration: "g7", DisplayDevice: "iOS", DisplayApp: "G7"},
 		{RecordID: "cal-2", SystemTime: base.Add(8 * time.Hour).Format(dexcomFmt), DisplayTime: base.Add(8 * time.Hour).Format(dexcomFmt), Value: 112, Unit: "mg/dL", TransmitterID: "tx-1", TransmitterGeneration: "g7", DisplayDevice: "iOS", DisplayApp: "G7"},
 	}}
@@ -636,7 +636,7 @@ func TestRateMealImpact_MealNotFound_ReturnsError(t *testing.T) {
 func TestGetTrend_NoData_ReturnsError(t *testing.T) {
 	// Mock returns empty EGV list.
 	type envelope struct {
-		EGVs []struct{} `json:"egvs"`
+		EGVs []struct{} `json:"records"`
 	}
 	body, _ := json.Marshal(envelope{})
 

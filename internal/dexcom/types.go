@@ -85,7 +85,7 @@ type DeviceRecord struct {
 
 // egvsResponse is the JSON envelope from GET /v3/users/self/egvs.
 type egvsResponse struct {
-	EGVs []apiEGV `json:"egvs"`
+	EGVs []apiEGV `json:"records"`
 }
 
 // apiEGV is the raw JSON shape of a single EGV record from Dexcom.
@@ -108,7 +108,7 @@ type apiEGV struct {
 
 // eventsResponse is the JSON envelope from GET /v3/users/self/events.
 type eventsResponse struct {
-	Events []apiEvent `json:"events"`
+	Events []apiEvent `json:"records"`
 }
 
 // apiEvent is the raw JSON shape of a single event record from Dexcom.
@@ -124,7 +124,7 @@ type apiEvent struct {
 
 // calibrationsResponse is the JSON envelope from GET /v3/users/self/calibrations.
 type calibrationsResponse struct {
-	Calibrations []apiCalibration `json:"calibrations"`
+	Calibrations []apiCalibration `json:"records"`
 }
 
 // apiCalibration is the raw JSON shape of a single calibration record from Dexcom.
@@ -142,7 +142,7 @@ type apiCalibration struct {
 
 // alertsResponse is the JSON envelope from GET /v3/users/self/alerts.
 type alertsResponse struct {
-	Alerts []apiAlert `json:"alerts"`
+	Alerts []apiAlert `json:"records"`
 }
 
 // apiAlert is the raw JSON shape of a single alert event from Dexcom.
@@ -188,7 +188,7 @@ type timeRangeJSON struct {
 
 // devicesResponse is the JSON envelope from GET /v3/users/self/devices.
 type devicesResponse struct {
-	Devices []DeviceRecord `json:"devices"`
+	Devices []DeviceRecord `json:"records"`
 }
 
 // tokenResponse is the JSON body from the Dexcom token endpoint.
