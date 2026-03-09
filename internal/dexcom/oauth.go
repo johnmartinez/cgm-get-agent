@@ -73,8 +73,8 @@ func (h *OAuthHandler) HandleStart(w http.ResponseWriter, r *http.Request) {
 		"scope":         {"offline_access"},
 		"state":         {state},
 	}
-	slog.Error("oauth start redirect",
-		"redirect_uri_in_auth_request", h.redirectURI,
+	slog.Debug("oauth start redirect",
+		"redirect_uri", h.redirectURI,
 		"base_url", h.baseURL,
 	)
 	http.Redirect(w, r, h.baseURL+"/v3/oauth2/login?"+params.Encode(), http.StatusFound)
@@ -87,15 +87,13 @@ func (h *OAuthHandler) HandleStart(w http.ResponseWriter, r *http.Request) {
 func (h *OAuthHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 	callbackTime := time.Now().UTC()
 	q := r.URL.Query()
-	slog.Error("oauth callback received",
-		"query", r.URL.RawQuery,
+	slog.Info("oauth callback received",
 		"callback_time", callbackTime.Format(time.RFC3339Nano),
 	)
 
 	if errParam := q.Get("error"); errParam != "" {
 		slog.Error("oauth callback error from Dexcom",
 			"error", errParam,
-			"error_description", q.Get("error_description"),
 		)
 		http.Error(w, "Dexcom authorization failed: "+errParam, http.StatusBadRequest)
 		return
@@ -129,13 +127,13 @@ func (h *OAuthHandler) HandleCallback(w http.ResponseWriter, r *http.Request) {
 // GetValidToken returns a valid Dexcom access token, refreshing transparently if needed.
 // Safe for concurrent use.
 func (h *OAuthHandler) GetValidToken(ctx context.Context) (string, error) {
-	slog.Error("DEBUG GetValidToken: entering")
+	slog.Debug("GetValidToken: entering")
 	tokens, err := h.refreshIfNeeded(ctx)
 	if err != nil {
-		slog.Error("DEBUG GetValidToken: refreshIfNeeded failed", "error", err)
+		slog.Debug("GetValidToken: refreshIfNeeded failed", "error", err)
 		return "", err
 	}
-	slog.Error("DEBUG GetValidToken: returning valid token")
+	slog.Debug("GetValidToken: returning valid token")
 	return tokens.AccessToken, nil
 }
 
@@ -155,40 +153,40 @@ func (h *OAuthHandler) LoadTokens() (types.OAuthTokens, error) {
 // refreshIfNeeded loads tokens from disk, refreshes if expiring within 5 minutes,
 // and returns valid tokens. The mutex ensures only one refresh happens concurrently.
 func (h *OAuthHandler) refreshIfNeeded(ctx context.Context) (types.OAuthTokens, error) {
-	slog.Error("DEBUG refreshIfNeeded: acquiring mutex")
+	slog.Debug("refreshIfNeeded: acquiring mutex")
 	h.mu.Lock()
-	slog.Error("DEBUG refreshIfNeeded: mutex acquired")
+	slog.Debug("refreshIfNeeded: mutex acquired")
 	defer h.mu.Unlock()
 
-	slog.Error("DEBUG refreshIfNeeded: loading tokens from disk", "path", h.tokenPath)
+	slog.Debug("refreshIfNeeded: loading tokens from disk", "path", h.tokenPath)
 	// Always re-read from disk inside the lock: another goroutine may have already refreshed.
 	tokens, err := crypto.LoadTokens(h.tokenPath, h.encKey)
 	if err != nil {
-		slog.Error("DEBUG refreshIfNeeded: LoadTokens failed", "error", err)
+		slog.Debug("refreshIfNeeded: LoadTokens failed", "error", err)
 		return types.OAuthTokens{}, &AuthError{
 			Message: "no tokens found — visit /oauth/start to authorize",
 		}
 	}
-	slog.Error("DEBUG refreshIfNeeded: tokens loaded", "expires_at", tokens.ExpiresAt, "time_until_expiry", time.Until(tokens.ExpiresAt).String())
+	slog.Debug("refreshIfNeeded: tokens loaded", "expires_at", tokens.ExpiresAt, "time_until_expiry", time.Until(tokens.ExpiresAt).String())
 
 	if time.Until(tokens.ExpiresAt) > 5*time.Minute {
-		slog.Error("DEBUG refreshIfNeeded: tokens still fresh, returning")
+		slog.Debug("refreshIfNeeded: tokens still fresh")
 		return tokens, nil // still fresh
 	}
 
-	slog.Error("DEBUG refreshIfNeeded: tokens expiring soon, refreshing")
+	slog.Info("oauth token refresh", "reason", "expiring_soon")
 	refreshed, err := h.doRefresh(ctx, tokens.RefreshToken)
 	if err != nil {
-		slog.Error("DEBUG refreshIfNeeded: doRefresh failed", "error", err)
+		slog.Error("oauth token refresh failed", "error", err)
 		return types.OAuthTokens{}, fmt.Errorf("dexcom: refreshing token: %w", err)
 	}
 
-	slog.Error("DEBUG refreshIfNeeded: saving refreshed tokens")
+	slog.Debug("refreshIfNeeded: saving refreshed tokens")
 	if err := crypto.SaveTokens(h.tokenPath, refreshed, h.encKey); err != nil {
-		slog.Error("DEBUG refreshIfNeeded: SaveTokens failed", "error", err)
+		slog.Error("oauth token save failed", "error", err)
 		return types.OAuthTokens{}, fmt.Errorf("dexcom: saving refreshed tokens: %w", err)
 	}
-	slog.Error("DEBUG refreshIfNeeded: refresh complete")
+	slog.Info("oauth token refreshed")
 	return refreshed, nil
 }
 
@@ -207,12 +205,7 @@ func (h *OAuthHandler) doRefresh(ctx context.Context, refreshToken string) (type
 
 // exchangeCode performs the authorization_code grant: code → access_token + refresh_token.
 func (h *OAuthHandler) exchangeCode(ctx context.Context, code string) (types.OAuthTokens, error) {
-	codePreview := code
-	if len(codePreview) > 8 {
-		codePreview = codePreview[:8] + "..."
-	}
-	slog.Error("oauth exchangeCode starting",
-		"code_preview", codePreview,
+	slog.Debug("oauth exchangeCode starting",
 		"redirect_uri", h.redirectURI,
 	)
 	return h.doTokenRequest(ctx, url.Values{
@@ -228,12 +221,12 @@ func (h *OAuthHandler) exchangeCode(ctx context.Context, code string) (types.OAu
 func (h *OAuthHandler) doTokenRequest(ctx context.Context, params url.Values) (types.OAuthTokens, error) {
 	tokenURL := h.baseURL + "/v3/oauth2/token"
 
-	// Log request details (mask client_secret).
+	// Log request details at debug level (mask client_secret).
 	maskedSecret := params.Get("client_secret")
 	if len(maskedSecret) > 4 {
 		maskedSecret = maskedSecret[:4] + "****"
 	}
-	slog.Error("oauth token request",
+	slog.Debug("oauth token request",
 		"url", tokenURL,
 		"grant_type", params.Get("grant_type"),
 		"client_id", params.Get("client_id"),
@@ -241,7 +234,6 @@ func (h *OAuthHandler) doTokenRequest(ctx context.Context, params url.Values) (t
 		"redirect_uri", params.Get("redirect_uri"),
 		"has_code", params.Get("code") != "",
 		"has_refresh_token", params.Get("refresh_token") != "",
-		"request_time", time.Now().UTC().Format(time.RFC3339Nano),
 	)
 
 	req, err := http.NewRequestWithContext(
@@ -266,17 +258,15 @@ func (h *OAuthHandler) doTokenRequest(ctx context.Context, params url.Values) (t
 	}
 	defer resp.Body.Close()
 
-	slog.Error("oauth token response",
+	slog.Debug("oauth token response",
 		"status", resp.StatusCode,
 		"elapsed_ms", elapsed.Milliseconds(),
-		"response_time", time.Now().UTC().Format(time.RFC3339Nano),
 	)
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 4096))
 		slog.Error("oauth token endpoint error",
 			"status", resp.StatusCode,
-			"response_body", string(body),
 		)
 		return types.OAuthTokens{}, &AuthError{
 			Message: fmt.Sprintf("token endpoint returned HTTP %d: %s", resp.StatusCode, string(body)),

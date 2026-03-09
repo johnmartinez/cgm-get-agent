@@ -44,6 +44,7 @@ type Config struct {
 		DBPath    string `yaml:"db_path"`
 		TokenPath string `yaml:"token_path"`
 	} `yaml:"storage"`
+	LogLevel      int          `yaml:"log_level"`  // 1=ERROR, 2=INFO (default), 3=DEBUG
 	EncryptionKey []byte       // decoded from GA_ENCRYPTION_KEY; never in YAML
 	GlucoseZones  GlucoseZones `yaml:"glucose_zones"`
 }
@@ -76,6 +77,7 @@ func defaults() *Config {
 	cfg.Server.Host = "0.0.0.0"
 	cfg.Storage.DBPath = "/data/data.db"
 	cfg.Storage.TokenPath = "/data/tokens.enc"
+	cfg.LogLevel = 2 // INFO
 	cfg.GlucoseZones = GlucoseZones{
 		Low:        70,
 		TargetLow:  80,
@@ -111,6 +113,11 @@ func applyEnv(cfg *Config) {
 	if v := os.Getenv("GA_SERVER_PORT"); v != "" {
 		if p, err := strconv.Atoi(v); err == nil {
 			cfg.Server.Port = p
+		}
+	}
+	if v := os.Getenv("GA_LOG_LEVEL"); v != "" {
+		if lvl, err := strconv.Atoi(v); err == nil && lvl >= 1 && lvl <= 3 {
+			cfg.LogLevel = lvl
 		}
 	}
 	if v := os.Getenv("GA_DB_PATH"); v != "" {
