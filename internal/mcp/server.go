@@ -53,9 +53,10 @@ func (s *Server) StartTime() time.Time {
 // SSEHandler returns an HTTP handler that serves the MCP SSE transport.
 // Mount at /sse in the HTTP mux.
 func (s *Server) SSEHandler() http.Handler {
-	return sdkmcp.NewSSEHandler(func(r *http.Request) *sdkmcp.Server {
+	handler := sdkmcp.NewSSEHandler(func(r *http.Request) *sdkmcp.Server {
 		return s.mcpServer
 	}, nil)
+	return SSEKeepaliveHandler(handler, 15*time.Second)
 }
 
 // RunStdio runs the MCP server on stdin/stdout (blocks until ctx is cancelled).
