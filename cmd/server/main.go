@@ -23,13 +23,23 @@ func main() {
 		os.Exit(1)
 	}
 
-	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
-
 	cfg, err := config.Load()
 	if err != nil {
-		logger.Error("config load failed", "error", err)
+		slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelError})).Error("config load failed", "error", err)
 		os.Exit(1)
 	}
+
+	var slogLevel slog.Level
+	switch cfg.LogLevel {
+	case 1:
+		slogLevel = slog.LevelError
+	case 3:
+		slogLevel = slog.LevelDebug
+	default:
+		slogLevel = slog.LevelInfo
+	}
+	logger := slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{Level: slogLevel}))
+	slog.SetDefault(logger)
 
 	st, err := store.Open(cfg.Storage.DBPath)
 	if err != nil {

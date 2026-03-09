@@ -125,7 +125,10 @@ Now ask Claude: *"What's my glucose right now?"*
 | `GA_SERVER_PORT` | No | `8090` | HTTP listen port |
 | `GA_DB_PATH` | No | `/data/data.db` | SQLite database path |
 | `GA_TOKEN_PATH` | No | `/data/tokens.enc` | Encrypted token file path |
+| `GA_LOG_LEVEL` | No | `2` | Log verbosity: 1=ERROR, 2=INFO, 3=DEBUG |
 | `GA_CONFIG_PATH` | No | `/data/config.yaml` | Optional YAML config override |
+
+> **Logging:** Default log level is 2 (INFO). Set `GA_LOG_LEVEL=1` for quiet mode or `GA_LOG_LEVEL=3` for full diagnostic output when troubleshooting.
 
 > **Port conflict?** If port 8090 is already in use, set both `GA_SERVER_PORT` and `GA_DEXCOM_REDIRECT_URI` together in `.env` and update your Dexcom developer app's Redirect URI to match:
 > ```bash

@@ -184,6 +184,43 @@ glucose_zones:
 	}
 }
 
+func TestLoad_LogLevelDefault(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("GA_LOG_LEVEL", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.LogLevel != 2 {
+		t.Errorf("expected default log_level=2, got %d", cfg.LogLevel)
+	}
+}
+
+func TestLoad_LogLevelEnvOverride(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("GA_LOG_LEVEL", "3")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if cfg.LogLevel != 3 {
+		t.Errorf("expected log_level=3, got %d", cfg.LogLevel)
+	}
+}
+
+func TestLoad_LogLevelInvalid(t *testing.T) {
+	setRequiredEnv(t)
+	t.Setenv("GA_LOG_LEVEL", "5")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// Invalid value should keep default
+	if cfg.LogLevel != 2 {
+		t.Errorf("expected default log_level=2 for invalid input, got %d", cfg.LogLevel)
+	}
+}
+
 func TestLoad_EnvWinsOverYAML(t *testing.T) {
 	setRequiredEnv(t)
 	t.Setenv("GA_DEXCOM_ENV", "sandbox") // env should win over YAML
