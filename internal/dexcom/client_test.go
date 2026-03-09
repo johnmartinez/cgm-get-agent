@@ -539,3 +539,80 @@ func TestAPIError_Message(t *testing.T) {
 		t.Errorf("error should mention status code: %q", err.Error())
 	}
 }
+
+func TestParseDexcomTime(t *testing.T) {
+	tests := []struct {
+		name    string
+		input   string
+		wantErr bool
+	}{
+		{"bare sandbox format", "2026-03-09T03:53:50", false},
+		{"RFC3339 with Z", "2026-03-09T03:53:50Z", false},
+		{"RFC3339 with millis and Z", "2026-03-09T03:53:50.687Z", false},
+		{"RFC3339 with micros and Z", "2026-03-09T03:53:50.687123Z", false},
+		{"RFC3339 with offset", "2026-03-09T03:53:50+00:00", false},
+		{"RFC3339 with millis and offset", "2026-03-09T03:53:50.687+00:00", false},
+		{"empty string", "", true},
+		{"garbage", "not-a-timestamp", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got, err := parseDexcomTime(tt.input)
+			if tt.wantErr {
+				if err == nil {
+					t.Errorf("expected error for %q, got %v", tt.input, got)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatalf("unexpected error for %q: %v", tt.input, err)
+			}
+			if got.Year() != 2026 || got.Month() != 3 || got.Day() != 9 {
+				t.Errorf("wrong date for %q: got %v", tt.input, got)
+			}
+		})
+	}
+}
+
+func TestGetEGVs_ProductionTimestamps(t *testing.T) {
+	// Verify that production-style timestamps with Z suffix and millis parse correctly.
+	rawResp := `{"records":[{
+		"recordId":"prod-1",
+		"systemTime":"2026-03-09T03:53:50.687Z",
+		"displayTime":"2026-03-09T03:53:50.687Z",
+		"transmitterId":"tx-prod",
+		"transmitterTicks":5000,
+		"value":120,
+		"trend":"flat",
+		"trendRate":0.5,
+		"unit":"mg/dL",
+		"rateUnit":"mg/dL/min",
+		"displayDevice":"iOS",
+		"transmitterGeneration":"g7",
+		"displayApp":"G7"
+	}]}`
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.Write([]byte(rawResp))
+	}))
+	defer srv.Close()
+
+	client, _ := newTestClient(t, srv)
+	start := time.Date(2026, 3, 9, 0, 0, 0, 0, time.UTC)
+	end := start.Add(24 * time.Hour)
+
+	egvs, err := client.GetEGVs(context.Background(), start, end)
+	if err != nil {
+		t.Fatalf("GetEGVs with production timestamps failed: %v", err)
+	}
+	if len(egvs) != 1 {
+		t.Fatalf("expected 1 EGV, got %d", len(egvs))
+	}
+	if egvs[0].Value != 120 {
+		t.Errorf("expected value=120, got %d", egvs[0].Value)
+	}
+	if egvs[0].SystemTime.Year() != 2026 {
+		t.Errorf("expected year=2026, got %d", egvs[0].SystemTime.Year())
+	}
+}

@@ -226,23 +226,37 @@ func dateParams(start, end time.Time) url.Values {
 	}
 }
 
-// parseTime tries Dexcom format first, then RFC3339. Returns zero time on failure.
-func parseTime(s string) time.Time {
-	if t, err := time.Parse(dexcomTimeFormat, s); err == nil {
-		return t
+// parseDexcomTime parses a Dexcom API timestamp string. Production returns
+// RFC3339 with millis and Z suffix ("2026-03-09T03:53:50.687Z"); sandbox
+// returns bare format without timezone ("2026-03-09T03:53:50"). This function
+// handles both, trying RFC3339/RFC3339Nano first (covers Z, offsets, variable
+// precision), then falling back to the bare format.
+func parseDexcomTime(s string) (time.Time, error) {
+	if t, err := time.Parse(time.RFC3339Nano, s); err == nil {
+		return t, nil
 	}
 	if t, err := time.Parse(time.RFC3339, s); err == nil {
-		return t
+		return t, nil
 	}
-	return time.Time{}
+	if t, err := time.Parse(dexcomTimeFormat, s); err == nil {
+		return t, nil
+	}
+	return time.Time{}, fmt.Errorf("cannot parse Dexcom timestamp %q", s)
+}
+
+// parseTime is a non-error variant for optional fields (e.g. dataRange).
+// Returns zero time on failure.
+func parseTime(s string) time.Time {
+	t, _ := parseDexcomTime(s)
+	return t
 }
 
 func convertEGV(e apiEGV) (types.EGVRecord, error) {
-	sys, err := time.Parse(dexcomTimeFormat, e.SystemTime)
+	sys, err := parseDexcomTime(e.SystemTime)
 	if err != nil {
 		return types.EGVRecord{}, fmt.Errorf("parsing systemTime %q: %w", e.SystemTime, err)
 	}
-	disp, _ := time.Parse(dexcomTimeFormat, e.DisplayTime)
+	disp, _ := parseDexcomTime(e.DisplayTime)
 	return types.EGVRecord{
 		RecordID:              e.RecordID,
 		SystemTime:            sys,
@@ -261,11 +275,11 @@ func convertEGV(e apiEGV) (types.EGVRecord, error) {
 }
 
 func convertEvent(e apiEvent) (types.DexcomEvent, error) {
-	sys, err := time.Parse(dexcomTimeFormat, e.SystemTime)
+	sys, err := parseDexcomTime(e.SystemTime)
 	if err != nil {
 		return types.DexcomEvent{}, fmt.Errorf("parsing event systemTime %q: %w", e.SystemTime, err)
 	}
-	disp, _ := time.Parse(dexcomTimeFormat, e.DisplayTime)
+	disp, _ := parseDexcomTime(e.DisplayTime)
 
 	var subType *types.EventSubType
 	if e.EventSubType != nil {
@@ -285,11 +299,11 @@ func convertEvent(e apiEvent) (types.DexcomEvent, error) {
 }
 
 func convertCalibration(c apiCalibration) (types.CalibrationRecord, error) {
-	sys, err := time.Parse(dexcomTimeFormat, c.SystemTime)
+	sys, err := parseDexcomTime(c.SystemTime)
 	if err != nil {
 		return types.CalibrationRecord{}, fmt.Errorf("parsing calibration systemTime %q: %w", c.SystemTime, err)
 	}
-	disp, _ := time.Parse(dexcomTimeFormat, c.DisplayTime)
+	disp, _ := parseDexcomTime(c.DisplayTime)
 	return types.CalibrationRecord{
 		RecordID:              c.RecordID,
 		SystemTime:            sys,
@@ -304,11 +318,11 @@ func convertCalibration(c apiCalibration) (types.CalibrationRecord, error) {
 }
 
 func convertAlert(a apiAlert) (types.AlertRecord, error) {
-	sys, err := time.Parse(dexcomTimeFormat, a.SystemTime)
+	sys, err := parseDexcomTime(a.SystemTime)
 	if err != nil {
 		return types.AlertRecord{}, fmt.Errorf("parsing alert systemTime %q: %w", a.SystemTime, err)
 	}
-	disp, _ := time.Parse(dexcomTimeFormat, a.DisplayTime)
+	disp, _ := parseDexcomTime(a.DisplayTime)
 	return types.AlertRecord{
 		RecordID:    a.RecordID,
 		SystemTime:  sys,
