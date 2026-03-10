@@ -27,6 +27,18 @@ An MCP (Model Context Protocol) server that connects LLMs (Claude, ChatGPT) to a
 - A [Dexcom Developer account](https://developer.dexcom.com/) — create an app to get `client_id` and `client_secret`
 - Go 1.24+ (for local development only; not needed for Docker builds)
 
+## Dexcom Developer Account
+
+This project requires your **own** Dexcom Developer Account. You must register your own application and obtain your own Client ID and Client Secret.
+
+1. Go to [developer.dexcom.com](https://developer.dexcom.com)
+2. Create an account or sign in
+3. Register a new application (Individual Access)
+4. Set your Redirect URI to `http://localhost:8090/callback` (or your chosen port)
+5. Copy your **Client ID** and **Client Secret** — you will need these during `make install`
+
+**DO NOT** use anyone else's credentials. **DO NOT** share your credentials. Each user must register their own Dexcom developer application.
+
 ## Quick Start
 
 ### 1. Clone and configure
@@ -213,11 +225,11 @@ Active development — spec-driven build. See `CLAUDE.md` for the phased impleme
 
 ## Contributing
 
-Issues and pull requests are welcome. Please open an issue before starting work on large changes.
+Issues and PRs welcome. This project uses conventional commits and branch-per-fix workflow.
 
 ## Disclaimer
 
-This project is not affiliated with, endorsed by, or sponsored by Dexcom, Inc. Dexcom and G7 are trademarks of Dexcom, Inc. This software is provided as-is for personal use. It is not a medical device and should not be used for clinical decision-making.
+This project is not affiliated with, endorsed by, or sponsored by Dexcom, Inc. Dexcom and G7 are trademarks of Dexcom, Inc. This software is provided as-is for personal use. It is not a medical device and should not be used for clinical decision-making. Always consult your healthcare provider for medical decisions.
 
 ## License
 
