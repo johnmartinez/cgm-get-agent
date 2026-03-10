@@ -10,6 +10,28 @@ An MCP (Model Context Protocol) server that connects LLMs (Claude, ChatGPT) to a
 - Works with Claude (via MCP/SSE or stdio) and ChatGPT (via REST shim)
 - Degrades gracefully when Dexcom is unavailable using a local glucose cache
 
+## Quick Start
+
+```bash
+git clone https://github.com/johnmartinez/cgm-get-agent
+cd cgm-get-agent
+make install
+```
+
+The installer will walk you through prerequisites, Dexcom credentials, and container setup. When it finishes, follow the printed instructions to authorize Dexcom and connect Claude.
+
+See [QUICKSTART.md](QUICKSTART.md) for the full step-by-step guide.
+
+## Upgrading
+
+```bash
+cd cgm-get-agent
+git pull
+make upgrade
+```
+
+Your data (`~/.cgm-get-agent/`), `.env` configuration, and OAuth tokens are preserved. Only the Docker image is rebuilt. Restart Claude Desktop after upgrading to reconnect MCP.
+
 ## Stack
 
 - **Go 1.24** — single binary, CGO for SQLite
@@ -26,8 +48,39 @@ An MCP (Model Context Protocol) server that connects LLMs (Claude, ChatGPT) to a
 - [Colima](https://github.com/abiosoft/colima) + Docker CLI (`brew install colima docker docker-compose`)
 - A [Dexcom Developer account](https://developer.dexcom.com/) — create an app to get `client_id` and `client_secret`
 - Go 1.24+ (for local development only; not needed for Docker builds)
+- Node.js (for Claude Desktop's `mcp-remote` bridge — `brew install node`)
 
-## Quick Start
+## Makefile Targets
+
+| Target | Description |
+|---|---|
+| `make install` | Run interactive installer (auto-detects fresh vs upgrade) |
+| `make upgrade` | Upgrade existing install (preserve data, rebuild container) |
+| `make build` | Build and start container (`docker compose up --build -d`) |
+| `make start` | Start container without rebuilding |
+| `make stop` | Stop and remove container |
+| `make restart` | Stop, rebuild, and start |
+| `make logs` | Tail container logs |
+| `make health` | Check server health endpoint |
+| `make auth` | Open OAuth authorization page in browser |
+| `make rehup` | Quick rebuild: stop, rebuild, start, health check |
+| `make clean-warn` | List artifacts that need manual cleanup |
+| `make status` | Show container state, version, health |
+| `make help` | List all targets |
+
+## Development Workflow
+
+For active development with Claude Code, use `make rehup` after merging PRs to quickly rebuild and test without the full install interaction:
+
+```bash
+# After merging a PR
+git checkout main && git pull
+make rehup
+```
+
+## Manual Setup
+
+If you prefer not to use the installer:
 
 ### 1. Clone and configure
 
@@ -49,8 +102,9 @@ openssl rand -hex 32
 ### 2. Start with Docker Compose
 
 ```bash
+mkdir -p ~/.cgm-get-agent && chmod 700 ~/.cgm-get-agent
 colima start --arch aarch64 --vm-type vz  # start Colima (first time)
-docker compose up --build
+docker compose up --build -d
 ```
 
 The server starts on `http://localhost:8090`.
@@ -63,30 +117,23 @@ Open in your browser:
 http://localhost:8090/oauth/start
 ```
 
-You'll be redirected to Dexcom to log in and grant HIPAA consent. After completing the flow, tokens are encrypted and stored locally. You will not need to repeat this unless tokens are revoked.
-
 Verify auth status:
 
 ```bash
 curl http://localhost:8090/health
-# {"status":"ok","dexcom_auth":"valid","db_accessible":true,"uptime_seconds":14}
 ```
 
 ### 4. Connect to Claude
 
-**Option A — Claude Code CLI (SSE, recommended):**
+**Claude Code CLI (SSE, recommended):**
 
 ```bash
 claude mcp add --transport sse cgm-get-agent http://localhost:8090/sse
 ```
 
-**Option B — Claude Desktop (requires mcp-remote bridge):**
+**Claude Desktop (requires mcp-remote bridge):**
 
-Claude Desktop only supports stdio transport in its local config. Use `mcp-remote` (via npx) as a stdio-to-SSE bridge.
-
-Prerequisite: Node.js must be installed (`brew install node`).
-
-Add to your Claude Desktop MCP config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 ```json
 {
@@ -104,13 +151,11 @@ Add to your Claude Desktop MCP config (`~/Library/Application Support/Claude/cla
 }
 ```
 
-**Option C — stdio (lowest latency, no HTTP):**
+**stdio (lowest latency, no HTTP):**
 
 ```bash
 claude mcp add cgm-get-agent -- docker exec -i cgm-get-agent cgm-get-agent serve --transport stdio
 ```
-
-Now ask Claude: *"What's my glucose right now?"*
 
 ## Environment Variables
 
@@ -127,14 +172,6 @@ Now ask Claude: *"What's my glucose right now?"*
 | `GA_TOKEN_PATH` | No | `/data/tokens.enc` | Encrypted token file path |
 | `GA_LOG_LEVEL` | No | `2` | Log verbosity: 1=ERROR, 2=INFO, 3=DEBUG |
 | `GA_CONFIG_PATH` | No | `/data/config.yaml` | Optional YAML config override |
-
-> **Logging:** Default log level is 2 (INFO). Set `GA_LOG_LEVEL=1` for quiet mode or `GA_LOG_LEVEL=3` for full diagnostic output when troubleshooting.
-
-> **Port conflict?** If port 8090 is already in use, set both `GA_SERVER_PORT` and `GA_DEXCOM_REDIRECT_URI` together in `.env` and update your Dexcom developer app's Redirect URI to match:
-> ```bash
-> GA_SERVER_PORT=8090
-> GA_DEXCOM_REDIRECT_URI=http://localhost:8090/callback
-> ```
 
 See `.env.example` for a template.
 
@@ -161,20 +198,6 @@ See `.env.example` for a template.
 | `log_exercise` | Log an exercise session with type, duration, intensity |
 | `rate_meal_impact` | Analyze glucose impact of a logged meal; 1–10 rating |
 
-## Dexcom Sandbox (No CGM Required)
-
-For development, use `GA_DEXCOM_ENV=sandbox` (default). The Dexcom sandbox provides simulated G7 data. Sandbox login does not require a real Dexcom account password.
-
-## Production Switch
-
-```bash
-# In .env:
-GA_DEXCOM_ENV=production
-
-docker compose up --build
-open http://localhost:8090/oauth/start   # re-authorize with real credentials
-```
-
 ## Data & Privacy
 
 - All health data stays on your local machine.
@@ -182,22 +205,6 @@ open http://localhost:8090/oauth/start   # re-authorize with real credentials
 - The host volume `~/.cgm-get-agent` should be `chmod 700`.
 - No data is transmitted to any third party other than the Dexcom API.
 - Never expose port 8090 directly to the internet. Use Tailscale or WireGuard for remote access.
-
-## Development
-
-```bash
-# Run tests
-go test ./...
-
-# Run locally (no Docker)
-GA_DEXCOM_ENV=sandbox \
-GA_ENCRYPTION_KEY=$(openssl rand -hex 32) \
-GA_MCP_TRANSPORT=sse \
-go run ./cmd/server
-
-# Build binary
-CGO_ENABLED=1 go build -o cgm-get-agent ./cmd/server
-```
 
 ## Architecture
 
