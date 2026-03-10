@@ -1,0 +1,33 @@
+# Secrets and credentials — never send to Docker build context
+.env
+*.enc
+*.key
+*.pem
+
+# Data files
+data.db
+data.db-shm
+data.db-wal
+config.yaml
+.cgm-get-agent/
+
+# Git history (not needed in build, large)
+.git
+.gitignore
+
+# Documentation (not needed in binary)
+docs/
+*.md
+LICENSE
+
+# IDE and OS artifacts
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# Install artifacts
+.version
+install.sh
+Makefile
