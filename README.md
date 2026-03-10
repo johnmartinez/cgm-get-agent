@@ -4,7 +4,7 @@ An MCP (Model Context Protocol) server that connects LLMs (Claude, ChatGPT) to a
 
 ## What It Does
 
-- Exposes all six Dexcom API v3 read endpoints as MCP tools (EGVs, events, calibrations, alerts, devices, data range)
+- 11 MCP tools — eight Dexcom API v3 read endpoints plus local meal logging, exercise logging, and meal impact analysis
 - Logs meals and exercise locally with LLM-estimated macros
 - Correlates meals against post-meal glucose response curves and rates impact 1–10
 - Works with Claude (via MCP/SSE or stdio) and ChatGPT (via REST shim)
@@ -121,13 +121,36 @@ Add to your Claude Desktop MCP config (`~/Library/Application Support/Claude/cla
 }
 ```
 
-**Option C — stdio (lowest latency, no HTTP):**
+**Option C — stdio (experimental — not yet validated with Claude Desktop):**
 
 ```bash
 claude mcp add cgm-get-agent -- docker exec -i cgm-get-agent cgm-get-agent serve --transport stdio
 ```
 
-Now ask Claude: *"What's my glucose right now?"*
+### 5. Connect to ChatGPT Desktop
+
+ChatGPT Desktop supports MCP via SSE. To add the server:
+
+1. Open **ChatGPT Desktop** → **Settings** → **Connectors** (or **MCP Servers**).
+2. Add a new server with URL: `http://localhost:8090/sse`
+3. Name it `cgm-get-agent`.
+4. Save and restart ChatGPT Desktop.
+
+> If your version of ChatGPT Desktop uses a config file, create or edit:
+> **`~/Library/Application Support/ChatGPT/mcp.json`**
+> ```json
+> {
+>   "servers": [
+>     {
+>       "name": "cgm-get-agent",
+>       "transport": "sse",
+>       "url": "http://localhost:8090/sse"
+>     }
+>   ]
+> }
+> ```
+
+Now ask Claude or ChatGPT: *"What's my glucose right now?"*
 
 ## Environment Variables
 
