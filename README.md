@@ -27,6 +27,23 @@ An MCP (Model Context Protocol) server that connects LLMs (Claude, ChatGPT) to a
 - A [Dexcom Developer account](https://developer.dexcom.com/) — create an app to get `client_id` and `client_secret`
 - Go 1.24+ (for local development only; not needed for Docker builds)
 
+## Dexcom Developer Account
+
+This project requires your **own** Dexcom Developer Account. You must register your own application and obtain your own Client ID and Client Secret.
+
+1. Go to [developer.dexcom.com](https://developer.dexcom.com) and create an account or sign in
+2. Register a new application
+3. Set your Redirect URI to `http://localhost:8090/callback` (or your chosen port)
+4. Copy your **Client ID** and **Client Secret** — you will need these during `make install`
+
+**Sandbox vs. Production access:**
+
+- A new Dexcom Developer Account starts at the **Registered Developer** tier, which only grants **sandbox access** (simulated data, not real CGM readings).
+- To access your **real glucose data**, you must apply for an **Individual Access** upgrade within your app profile on the Dexcom developer portal. Individual Access grants access to your own production Dexcom data.
+- After upgrading, each Dexcom account holder must **authorize the app via OAuth** — data access is opt-in and can be revoked at any time from your Dexcom account settings.
+
+**DO NOT** use anyone else's credentials. **DO NOT** share your credentials. Each user must register their own Dexcom developer application.
+
 ## Quick Start
 
 ### 1. Clone and configure
@@ -211,6 +228,14 @@ Implementation instructions: [CLAUDE.md](CLAUDE.md)
 
 Active development — spec-driven build. See `CLAUDE.md` for the phased implementation plan and progress.
 
+## Contributing
+
+Issues and PRs welcome. This project uses conventional commits and branch-per-fix workflow.
+
+## Disclaimer
+
+This project is not affiliated with, endorsed by, or sponsored by Dexcom, Inc. Dexcom and G7 are trademarks of Dexcom, Inc. This software is provided as-is for personal use. It is not a medical device and should not be used for clinical decision-making. Always consult your healthcare provider for medical decisions.
+
 ## License
 
-TBD
+BSD 3-Clause License. See [LICENSE](LICENSE) for details.

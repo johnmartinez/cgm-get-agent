@@ -27,20 +27,19 @@ CGM Get Agent runs as a local Docker container that exposes your Dexcom G7 data 
 
 ---
 
-## Step 1 — Register a Dexcom Developer App
+## Step 1 — Register Your Own Dexcom Developer App
 
-1. Sign in at [developer.dexcom.com](https://developer.dexcom.com).
-2. Create a new application.
+You need **your own** Client ID and Client Secret. Each user must register their own Dexcom developer application — do not use or share anyone else's credentials.
+
+1. Go to [developer.dexcom.com](https://developer.dexcom.com) and create an account or sign in.
+2. Register a new application.
 3. Set the **Redirect URI** to: `http://localhost:8090/callback`
-   > **Using a different port?** If port 8090 is already in use on your machine, choose another port (e.g. 8090) and set the Redirect URI to `http://localhost:8090/callback` instead. Then add both overrides to `.env`:
-   > ```bash
-   > GA_SERVER_PORT=8090
-   > GA_DEXCOM_REDIRECT_URI=http://localhost:8090/callback
-   > ```
-   > The Dexcom developer portal Redirect URI and `GA_DEXCOM_REDIRECT_URI` must match exactly.
-4. Copy your **Client ID** and **Client Secret** — you'll need them in Step 3.
+   > **Using a different port?** The installer will ask for your port and set the redirect URI automatically. Make sure the Dexcom developer portal Redirect URI matches exactly.
+4. Copy your **Client ID** and **Client Secret** — the installer will prompt for them.
 
-> **Sandbox vs. Production**: The Dexcom sandbox provides simulated G7 data with no real CGM required. Start with sandbox (`GA_DEXCOM_ENV=sandbox`) to verify everything works, then switch to production for live readings.
+> **Access tiers**: A new Dexcom Developer Account starts at the **Registered Developer** tier, which only grants **sandbox access** (simulated data). To access your **real glucose data**, apply for an **Individual Access** upgrade within your app profile on the Dexcom developer portal. After upgrading, you must authorize the app via OAuth — data access is opt-in and can be revoked at any time.
+>
+> Start with sandbox (`GA_DEXCOM_ENV=sandbox`) to verify everything works, then switch to production after Individual Access is approved.
 
 ---
 
