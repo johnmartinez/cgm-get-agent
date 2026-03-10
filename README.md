@@ -211,6 +211,14 @@ Implementation instructions: [CLAUDE.md](CLAUDE.md)
 
 Active development — spec-driven build. See `CLAUDE.md` for the phased implementation plan and progress.
 
+## Contributing
+
+Issues and pull requests are welcome. Please open an issue before starting work on large changes.
+
+## Disclaimer
+
+This project is not affiliated with, endorsed by, or sponsored by Dexcom, Inc. Dexcom and G7 are trademarks of Dexcom, Inc. This software is provided as-is for personal use. It is not a medical device and should not be used for clinical decision-making.
+
 ## License
 
-TBD
+BSD 3-Clause License. See [LICENSE](LICENSE) for details.
