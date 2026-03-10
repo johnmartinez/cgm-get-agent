@@ -65,6 +65,8 @@ GA_DEXCOM_CLIENT_ID=your-client-id-from-dexcom
 GA_DEXCOM_CLIENT_SECRET=your-client-secret-from-dexcom
 GA_DEXCOM_ENV=sandbox          # or "production" for live CGM data
 GA_ENCRYPTION_KEY=$(openssl rand -hex 32)
+GA_MCP_TRANSPORT=sse
+GA_SERVER_PORT=8090
 ```
 
 > **Keep `.env` private.** It is gitignored and must never be committed.
@@ -145,7 +147,8 @@ Restart Claude Desktop. You should see **cgm-get-agent** appear in the tools pan
 > ```bash
 > claude mcp add --transport sse cgm-get-agent http://localhost:8090/sse
 > ```
-> Or for stdio (runs a fresh server process per session):
+
+> **stdio transport (experimental — not yet validated):** Runs a fresh server process per session with no HTTP layer. May cause JSON-RPC corruption errors.
 > ```bash
 > claude mcp add cgm-get-agent -- docker exec -e GA_MCP_TRANSPORT=stdio -i cgm-get-agent cgm-get-agent serve
 > ```
@@ -256,15 +259,13 @@ docker compose up -d
 
 When you're ready to use live CGM data:
 
-1. Register a **production** app at [developer.dexcom.com](https://developer.dexcom.com) with redirect URI matching `GA_DEXCOM_REDIRECT_URI` (default: `http://localhost:8090/callback`).
-2. Update `.env`:
+1. Apply for an **Individual Access** upgrade on your existing app at [developer.dexcom.com](https://developer.dexcom.com). This grants access to your own production Dexcom data.
+2. If your upgraded app has different credentials, update them in `.env`. If the credentials are the same, you only need to change `GA_DEXCOM_ENV`:
    ```bash
-   GA_DEXCOM_CLIENT_ID=your-production-client-id
-   GA_DEXCOM_CLIENT_SECRET=your-production-client-secret
    GA_DEXCOM_ENV=production
    ```
-3. Restart and re-authorize:
+3. Rebuild and re-authorize:
    ```bash
-   docker compose up --build -d
-   open http://localhost:8090/oauth/start
+   make rehup
+   make auth
    ```
