@@ -31,11 +31,16 @@ An MCP (Model Context Protocol) server that connects LLMs (Claude, ChatGPT) to a
 
 This project requires your **own** Dexcom Developer Account. You must register your own application and obtain your own Client ID and Client Secret.
 
-1. Go to [developer.dexcom.com](https://developer.dexcom.com)
-2. Create an account or sign in
-3. Register a new application (Individual Access)
-4. Set your Redirect URI to `http://localhost:8090/callback` (or your chosen port)
-5. Copy your **Client ID** and **Client Secret** — you will need these during `make install`
+1. Go to [developer.dexcom.com](https://developer.dexcom.com) and create an account or sign in
+2. Register a new application
+3. Set your Redirect URI to `http://localhost:8090/callback` (or your chosen port)
+4. Copy your **Client ID** and **Client Secret** — you will need these during `make install`
+
+**Sandbox vs. Production access:**
+
+- A new Dexcom Developer Account starts at the **Registered Developer** tier, which only grants **sandbox access** (simulated data, not real CGM readings).
+- To access your **real glucose data**, you must apply for an **Individual Access** upgrade within your app profile on the Dexcom developer portal. Individual Access grants access to your own production Dexcom data.
+- After upgrading, each Dexcom account holder must **authorize the app via OAuth** — data access is opt-in and can be revoked at any time from your Dexcom account settings.
 
 **DO NOT** use anyone else's credentials. **DO NOT** share your credentials. Each user must register their own Dexcom developer application.
 
