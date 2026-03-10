@@ -4,33 +4,11 @@ An MCP (Model Context Protocol) server that connects LLMs (Claude, ChatGPT) to a
 
 ## What It Does
 
-- Exposes all six Dexcom API v3 read endpoints as MCP tools (EGVs, events, calibrations, alerts, devices, data range)
+- 11 MCP tools — eight Dexcom API v3 read endpoints plus local meal logging, exercise logging, and meal impact analysis
 - Logs meals and exercise locally with LLM-estimated macros
 - Correlates meals against post-meal glucose response curves and rates impact 1–10
 - Works with Claude (via MCP/SSE or stdio) and ChatGPT (via REST shim)
 - Degrades gracefully when Dexcom is unavailable using a local glucose cache
-
-## Quick Start
-
-```bash
-git clone https://github.com/johnmartinez/cgm-get-agent
-cd cgm-get-agent
-make install
-```
-
-The installer will walk you through prerequisites, Dexcom credentials, and container setup. When it finishes, follow the printed instructions to authorize Dexcom and connect Claude.
-
-See [QUICKSTART.md](QUICKSTART.md) for the full step-by-step guide.
-
-## Upgrading
-
-```bash
-cd cgm-get-agent
-git pull
-make upgrade
-```
-
-Your data (`~/.cgm-get-agent/`), `.env` configuration, and OAuth tokens are preserved. Only the Docker image is rebuilt. Restart Claude Desktop after upgrading to reconnect MCP.
 
 ## Stack
 
@@ -48,39 +26,25 @@ Your data (`~/.cgm-get-agent/`), `.env` configuration, and OAuth tokens are pres
 - [Colima](https://github.com/abiosoft/colima) + Docker CLI (`brew install colima docker docker-compose`)
 - A [Dexcom Developer account](https://developer.dexcom.com/) — create an app to get `client_id` and `client_secret`
 - Go 1.24+ (for local development only; not needed for Docker builds)
-- Node.js (for Claude Desktop's `mcp-remote` bridge — `brew install node`)
 
-## Makefile Targets
+## Dexcom Developer Account
 
-| Target | Description |
-|---|---|
-| `make install` | Run interactive installer (auto-detects fresh vs upgrade) |
-| `make upgrade` | Upgrade existing install (preserve data, rebuild container) |
-| `make build` | Build and start container (`docker compose up --build -d`) |
-| `make start` | Start container without rebuilding |
-| `make stop` | Stop and remove container |
-| `make restart` | Stop, rebuild, and start |
-| `make logs` | Tail container logs |
-| `make health` | Check server health endpoint |
-| `make auth` | Open OAuth authorization page in browser |
-| `make rehup` | Quick rebuild: stop, rebuild, start, health check |
-| `make clean-warn` | List artifacts that need manual cleanup |
-| `make status` | Show container state, version, health |
-| `make help` | List all targets |
+This project requires your **own** Dexcom Developer Account. You must register your own application and obtain your own Client ID and Client Secret.
 
-## Development Workflow
+1. Go to [developer.dexcom.com](https://developer.dexcom.com) and create an account or sign in
+2. Register a new application
+3. Set your Redirect URI to `http://localhost:8090/callback` (or your chosen port)
+4. Copy your **Client ID** and **Client Secret** — you will need these during `make install`
 
-For active development with Claude Code, use `make rehup` after merging PRs to quickly rebuild and test without the full install interaction:
+**Sandbox vs. Production access:**
 
-```bash
-# After merging a PR
-git checkout main && git pull
-make rehup
-```
+- A new Dexcom Developer Account starts at the **Registered Developer** tier, which only grants **sandbox access** (simulated data, not real CGM readings).
+- To access your **real glucose data**, you must apply for an **Individual Access** upgrade within your app profile on the Dexcom developer portal. Individual Access grants access to your own production Dexcom data.
+- After upgrading, each Dexcom account holder must **authorize the app via OAuth** — data access is opt-in and can be revoked at any time from your Dexcom account settings.
 
-## Manual Setup
+**DO NOT** use anyone else's credentials. **DO NOT** share your credentials. Each user must register their own Dexcom developer application.
 
-If you prefer not to use the installer:
+## Quick Start
 
 ### 1. Clone and configure
 
@@ -102,9 +66,8 @@ openssl rand -hex 32
 ### 2. Start with Docker Compose
 
 ```bash
-mkdir -p ~/.cgm-get-agent && chmod 700 ~/.cgm-get-agent
 colima start --arch aarch64 --vm-type vz  # start Colima (first time)
-docker compose up --build -d
+docker compose up --build
 ```
 
 The server starts on `http://localhost:8090`.
@@ -117,23 +80,30 @@ Open in your browser:
 http://localhost:8090/oauth/start
 ```
 
+You'll be redirected to Dexcom to log in and grant HIPAA consent. After completing the flow, tokens are encrypted and stored locally. You will not need to repeat this unless tokens are revoked.
+
 Verify auth status:
 
 ```bash
 curl http://localhost:8090/health
+# {"status":"ok","dexcom_auth":"valid","db_accessible":true,"uptime_seconds":14}
 ```
 
 ### 4. Connect to Claude
 
-**Claude Code CLI (SSE, recommended):**
+**Option A — Claude Code CLI (SSE, recommended):**
 
 ```bash
 claude mcp add --transport sse cgm-get-agent http://localhost:8090/sse
 ```
 
-**Claude Desktop (requires mcp-remote bridge):**
+**Option B — Claude Desktop (requires mcp-remote bridge):**
 
-Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
+Claude Desktop only supports stdio transport in its local config. Use `mcp-remote` (via npx) as a stdio-to-SSE bridge.
+
+Prerequisite: Node.js must be installed (`brew install node`).
+
+Add to your Claude Desktop MCP config (`~/Library/Application Support/Claude/claude_desktop_config.json`):
 
 ```json
 {
@@ -151,11 +121,36 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 }
 ```
 
-**stdio (lowest latency, no HTTP):**
+**Option C — stdio (experimental — not yet validated with Claude Desktop):**
 
 ```bash
 claude mcp add cgm-get-agent -- docker exec -i cgm-get-agent cgm-get-agent serve --transport stdio
 ```
+
+### 5. Connect to ChatGPT Desktop
+
+ChatGPT Desktop supports MCP via SSE. To add the server:
+
+1. Open **ChatGPT Desktop** → **Settings** → **Connectors** (or **MCP Servers**).
+2. Add a new server with URL: `http://localhost:8090/sse`
+3. Name it `cgm-get-agent`.
+4. Save and restart ChatGPT Desktop.
+
+> If your version of ChatGPT Desktop uses a config file, create or edit:
+> **`~/Library/Application Support/ChatGPT/mcp.json`**
+> ```json
+> {
+>   "servers": [
+>     {
+>       "name": "cgm-get-agent",
+>       "transport": "sse",
+>       "url": "http://localhost:8090/sse"
+>     }
+>   ]
+> }
+> ```
+
+Now ask Claude or ChatGPT: *"What's my glucose right now?"*
 
 ## Environment Variables
 
@@ -172,6 +167,14 @@ claude mcp add cgm-get-agent -- docker exec -i cgm-get-agent cgm-get-agent serve
 | `GA_TOKEN_PATH` | No | `/data/tokens.enc` | Encrypted token file path |
 | `GA_LOG_LEVEL` | No | `2` | Log verbosity: 1=ERROR, 2=INFO, 3=DEBUG |
 | `GA_CONFIG_PATH` | No | `/data/config.yaml` | Optional YAML config override |
+
+> **Logging:** Default log level is 2 (INFO). Set `GA_LOG_LEVEL=1` for quiet mode or `GA_LOG_LEVEL=3` for full diagnostic output when troubleshooting.
+
+> **Port conflict?** If port 8090 is already in use, set both `GA_SERVER_PORT` and `GA_DEXCOM_REDIRECT_URI` together in `.env` and update your Dexcom developer app's Redirect URI to match:
+> ```bash
+> GA_SERVER_PORT=8090
+> GA_DEXCOM_REDIRECT_URI=http://localhost:8090/callback
+> ```
 
 See `.env.example` for a template.
 
@@ -198,6 +201,20 @@ See `.env.example` for a template.
 | `log_exercise` | Log an exercise session with type, duration, intensity |
 | `rate_meal_impact` | Analyze glucose impact of a logged meal; 1–10 rating |
 
+## Dexcom Sandbox (No CGM Required)
+
+For development, use `GA_DEXCOM_ENV=sandbox` (default). The Dexcom sandbox provides simulated G7 data. Sandbox login does not require a real Dexcom account password.
+
+## Production Switch
+
+```bash
+# In .env:
+GA_DEXCOM_ENV=production
+
+docker compose up --build
+open http://localhost:8090/oauth/start   # re-authorize with real credentials
+```
+
 ## Data & Privacy
 
 - All health data stays on your local machine.
@@ -205,6 +222,22 @@ See `.env.example` for a template.
 - The host volume `~/.cgm-get-agent` should be `chmod 700`.
 - No data is transmitted to any third party other than the Dexcom API.
 - Never expose port 8090 directly to the internet. Use Tailscale or WireGuard for remote access.
+
+## Development
+
+```bash
+# Run tests
+go test ./...
+
+# Run locally (no Docker)
+GA_DEXCOM_ENV=sandbox \
+GA_ENCRYPTION_KEY=$(openssl rand -hex 32) \
+GA_MCP_TRANSPORT=sse \
+go run ./cmd/server
+
+# Build binary
+CGO_ENABLED=1 go build -o cgm-get-agent ./cmd/server
+```
 
 ## Architecture
 
@@ -218,6 +251,14 @@ Implementation instructions: [CLAUDE.md](CLAUDE.md)
 
 Active development — spec-driven build. See `CLAUDE.md` for the phased implementation plan and progress.
 
+## Contributing
+
+Issues and PRs welcome. This project uses conventional commits and branch-per-fix workflow.
+
+## Disclaimer
+
+This project is not affiliated with, endorsed by, or sponsored by Dexcom, Inc. Dexcom and G7 are trademarks of Dexcom, Inc. This software is provided as-is for personal use. It is not a medical device and should not be used for clinical decision-making. Always consult your healthcare provider for medical decisions.
+
 ## License
 
-TBD
+BSD 3-Clause License. See [LICENSE](LICENSE) for details.

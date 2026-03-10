@@ -23,78 +23,103 @@ CGM Get Agent runs as a local Docker container that exposes your Dexcom G7 data 
 | [Colima](https://github.com/abiosoft/colima) + Docker CLI | `brew install colima docker docker-compose` |
 | Dexcom G7 + iOS app | Active sensor and Dexcom cloud account required |
 | [Dexcom developer account](https://developer.dexcom.com) | Free to register |
-| Node.js | For Claude Desktop's `mcp-remote` bridge (`brew install node`) |
 | Claude Desktop or ChatGPT Desktop | Any recent version with MCP support |
 
 ---
 
-## Step 1 — Register a Dexcom Developer App
+## Step 1 — Register Your Own Dexcom Developer App
 
-1. Sign in at [developer.dexcom.com](https://developer.dexcom.com).
-2. Create a new application.
+You need **your own** Client ID and Client Secret. Each user must register their own Dexcom developer application — do not use or share anyone else's credentials.
+
+1. Go to [developer.dexcom.com](https://developer.dexcom.com) and create an account or sign in.
+2. Register a new application.
 3. Set the **Redirect URI** to: `http://localhost:8090/callback`
    > **Using a different port?** The installer will ask for your port and set the redirect URI automatically. Make sure the Dexcom developer portal Redirect URI matches exactly.
 4. Copy your **Client ID** and **Client Secret** — the installer will prompt for them.
 
-> **Sandbox vs. Production**: The Dexcom sandbox provides simulated G7 data with no real CGM required. Start with sandbox to verify everything works, then switch to production for live readings.
+> **Access tiers**: A new Dexcom Developer Account starts at the **Registered Developer** tier, which only grants **sandbox access** (simulated data). To access your **real glucose data**, apply for an **Individual Access** upgrade within your app profile on the Dexcom developer portal. After upgrading, you must authorize the app via OAuth — data access is opt-in and can be revoked at any time.
+>
+> Start with sandbox (`GA_DEXCOM_ENV=sandbox`) to verify everything works, then switch to production after Individual Access is approved.
 
 ---
 
-## Step 2 — Install
+## Step 2 — Install and Configure
 
 ```bash
+# Clone the repo
 git clone https://github.com/johnmartinez/cgm-get-agent.git
 cd cgm-get-agent
-make install
+
+# Create the data directory
+mkdir -p ~/.cgm-get-agent
+chmod 700 ~/.cgm-get-agent
+
+# Copy and fill in the environment file
+cp .env.example .env
 ```
 
-The installer will:
-1. Check prerequisites (Docker, Colima, Node.js)
-2. Ask for your environment (sandbox or production)
-3. Prompt for your Dexcom Client ID and Client Secret
-4. Auto-generate an AES-256 encryption key
-5. Write your `.env` file
-6. Create the data directory (`~/.cgm-get-agent/`)
-7. Build and start the Docker container
-8. Run a health check
+Edit `.env` with your values:
 
-When it finishes, follow the printed next steps.
+```bash
+GA_DEXCOM_CLIENT_ID=your-client-id-from-dexcom
+GA_DEXCOM_CLIENT_SECRET=your-client-secret-from-dexcom
+GA_DEXCOM_ENV=sandbox          # or "production" for live CGM data
+GA_ENCRYPTION_KEY=$(openssl rand -hex 32)
+GA_MCP_TRANSPORT=sse
+GA_SERVER_PORT=8090
+```
 
-### Manual Setup (fallback)
-
-If you prefer not to use the installer, see the [Manual Setup section in README.md](README.md#manual-setup).
+> **Keep `.env` private.** It is gitignored and must never be committed.
 
 ---
 
-## Step 3 — Authorize Dexcom (One-Time)
+## Step 3 — Start the Container
 
 ```bash
-make auth
+# Start Colima if it isn't already running
+colima start --arch aarch64 --vm-type vz
+
+# Build and start the agent
+docker compose up --build -d
+
+# Confirm it's healthy
+docker compose ps
+curl http://localhost:8090/health
 ```
 
-Or open **http://localhost:8090/oauth/start** in your browser.
-
-Log in to your Dexcom account and complete the HIPAA authorization screen. You'll be redirected back with a success message.
-
-Verify authorization:
-
-```bash
-make health
-```
-
-Expected response:
+Expected health response before OAuth:
 
 ```json
-{"status": "ok", "dexcom_auth": "valid", "db_accessible": true, "uptime_seconds": 42}
+{"status":"degraded","dexcom_auth":"not_configured","db_accessible":true,"uptime_seconds":3}
 ```
-
-OAuth tokens are encrypted with AES-256-GCM and stored at `~/.cgm-get-agent/tokens.enc`.
 
 ---
 
-## Step 4 — Connect Claude Desktop
+## Step 4 — Authorize Dexcom (One-Time)
 
-Claude Desktop only supports stdio transport in its local config — it cannot connect to an SSE endpoint directly. Use `mcp-remote` (via npx) as a stdio-to-SSE bridge. This is the primary and recommended method.
+1. Open **http://localhost:8090/oauth/start** in your browser.
+2. Log in to your Dexcom account and complete the HIPAA authorization screen.
+3. You'll be redirected back with a success message.
+
+Verify authorization succeeded:
+
+```bash
+curl http://localhost:8090/health
+```
+
+```json
+{"status":"ok","dexcom_auth":"valid","db_accessible":true,"uptime_seconds":42}
+```
+
+OAuth tokens are encrypted with AES-256-GCM and stored at `~/.cgm-get-agent/tokens.enc`. They are never logged or sent anywhere except to Dexcom's API.
+
+---
+
+## Step 5 — Connect Claude Desktop
+
+Claude Desktop only supports stdio transport in its local config — it cannot connect to an SSE endpoint directly. Use `mcp-remote` (via npx) as a stdio-to-SSE bridge.
+
+**Prerequisite:** Node.js must be installed (`brew install node`).
 
 Edit Claude Desktop's MCP config file:
 
@@ -116,21 +141,21 @@ Edit Claude Desktop's MCP config file:
 }
 ```
 
-Restart Claude Desktop. You should see **cgm-get-agent** appear in the tools panel (the hammer icon).
+Restart Claude Desktop. You should see **cgm-get-agent** appear in the tools panel (the hammer icon). The 11 tools will be listed there.
 
 > **Claude Code CLI (SSE, no bridge needed):**
 > ```bash
 > claude mcp add --transport sse cgm-get-agent http://localhost:8090/sse
 > ```
 
-> **stdio transport (experimental):** Runs a fresh server process per session with no HTTP layer. Lower latency but less tested:
+> **stdio transport (experimental — not yet validated):** Runs a fresh server process per session with no HTTP layer. May cause JSON-RPC corruption errors.
 > ```bash
 > claude mcp add cgm-get-agent -- docker exec -e GA_MCP_TRANSPORT=stdio -i cgm-get-agent cgm-get-agent serve
 > ```
 
 ---
 
-## Step 5 — Connect ChatGPT Desktop
+## Step 6 — Connect ChatGPT Desktop
 
 ChatGPT Desktop supports MCP via SSE. To add the server:
 
@@ -138,6 +163,8 @@ ChatGPT Desktop supports MCP via SSE. To add the server:
 2. Add a new server with URL: `http://localhost:8090/sse`
 3. Name it `cgm-get-agent`.
 4. Save and restart ChatGPT Desktop.
+
+The 11 tools will be available automatically in any conversation.
 
 > If your version of ChatGPT Desktop uses a config file instead of the UI, create or edit:
 > **`~/Library/Application Support/ChatGPT/mcp.json`**
@@ -177,27 +204,6 @@ How did the meal I logged at lunch impact my glucose? Give it a rating.
 
 ---
 
-## Upgrading
-
-When new code is available:
-
-```bash
-cd cgm-get-agent
-git pull
-make upgrade
-```
-
-The upgrade preserves your data (`~/.cgm-get-agent/`), `.env` configuration, and OAuth tokens. Only the Docker image is rebuilt from the latest code.
-
-### After Upgrading
-
-1. `make status` — verify the container is running
-2. `make health` — verify the server is healthy
-3. Restart Claude Desktop to reconnect MCP
-4. Test: ask Claude *"What Dexcom sensor am I wearing?"*
-
----
-
 ## Available Tools
 
 | Tool | Description |
@@ -218,44 +224,34 @@ The upgrade preserves your data (`~/.cgm-get-agent/`), `.env` configuration, and
 
 ## Troubleshooting
 
-**"Tool result too large" error in Claude**
-Use shorter time windows for `get_glucose_history` and `get_dexcom_events`. Instead of 30 days, try 1–3 days.
-
-**SSE session drops / tools stop responding**
-Restart Claude Desktop. The mcp-remote bridge reconnects automatically. If the issue persists, check `make logs` for SSE keepalive errors.
-
-**OAuth token expired**
-```bash
-make auth
-```
-This opens the Dexcom authorization page. Re-authorize and your tokens will be refreshed.
-
-**Container not starting**
-```bash
-colima status          # is Colima running?
-colima start --arch aarch64 --vm-type vz   # start if needed
-make logs              # check container logs for errors
-```
-
-**After upgrade, tools not responding**
-Restart Claude Desktop to reconnect MCP. The mcp-remote bridge caches the old connection.
-
 **Health shows `dexcom_auth: not_configured`**
-Run `make auth` to complete the one-time Dexcom authorization.
+Visit `http://localhost:8090/oauth/start` and complete the Dexcom authorization flow.
 
 **Health shows `dexcom_auth: expired`**
-Your refresh token expired (rare). Run `make auth` to re-authorize.
+Your refresh token expired (rare). Re-authorize: `open http://localhost:8090/oauth/start`
 
 **Tools show stale data notice**
 Normal for US mobile users — the Dexcom cloud has a ~1 hour delay for G7 data uploaded via iOS. Data uploaded from a Dexcom receiver via USB arrives immediately.
 
 **Port 8090 already in use**
-Re-run `make install` with a different port, or manually edit `.env`:
+Set both port vars in `.env` and update your Dexcom app's Redirect URI to match:
 ```bash
-GA_SERVER_PORT=9090
-GA_DEXCOM_REDIRECT_URI=http://localhost:9090/callback
+GA_SERVER_PORT=8090
+GA_DEXCOM_REDIRECT_URI=http://localhost:8090/callback
 ```
-Update your Dexcom developer app's Redirect URI to match.
+Then replace every `8090` reference in this guide with your chosen port.
+
+**Container won't start**
+```bash
+docker compose logs cgm-get-agent
+```
+Most common cause: missing or incorrect values in `.env`.
+
+**Restart after reboot**
+```bash
+colima start --arch aarch64 --vm-type vz
+docker compose up -d
+```
 
 ---
 
@@ -263,11 +259,9 @@ Update your Dexcom developer app's Redirect URI to match.
 
 When you're ready to use live CGM data:
 
-1. Register a **production** app at [developer.dexcom.com](https://developer.dexcom.com) with redirect URI matching `GA_DEXCOM_REDIRECT_URI`.
-2. Update `.env`:
+1. Apply for an **Individual Access** upgrade on your existing app at [developer.dexcom.com](https://developer.dexcom.com). This grants access to your own production Dexcom data.
+2. If your upgraded app has different credentials, update them in `.env`. If the credentials are the same, you only need to change `GA_DEXCOM_ENV`:
    ```bash
-   GA_DEXCOM_CLIENT_ID=your-production-client-id
-   GA_DEXCOM_CLIENT_SECRET=your-production-client-secret
    GA_DEXCOM_ENV=production
    ```
 3. Rebuild and re-authorize:
