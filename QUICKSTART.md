@@ -247,6 +247,9 @@ docker compose logs cgm-get-agent
 ```
 Most common cause: missing or incorrect values in `.env`.
 
+**Data gap after fresh install or re-authorization**
+After a fresh install, rebuild with new tokens, or re-authorization, you may only see historical data from your previous auth session. Recent readings (last 1-2 hours) will backfill as the Dexcom API syncs with your new OAuth tokens. Wait an hour and try again — your G7 sensor has been uploading continuously, the API just needs time to serve it under the new authorization.
+
 **Restart after reboot**
 ```bash
 colima start --arch aarch64 --vm-type vz
