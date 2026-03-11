@@ -222,6 +222,7 @@ open http://localhost:8090/oauth/start   # re-authorize with real credentials
 - The host volume `~/.cgm-get-agent` should be `chmod 700`.
 - No data is transmitted to any third party other than the Dexcom API.
 - Never expose port 8090 directly to the internet. Use Tailscale or WireGuard for remote access.
+- After a fresh install, rebuild, or re-authorization, recent readings (last 1-2 hours) may be temporarily unavailable while the Dexcom API syncs with your new OAuth tokens. Historical data backfills within an hour.
 
 ## Development
 
