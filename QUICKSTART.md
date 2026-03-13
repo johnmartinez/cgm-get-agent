@@ -2,6 +2,8 @@
 
 Connect your Dexcom G7 CGM to Claude Desktop or ChatGPT Desktop in about 15 minutes.
 
+![Claude Desktop generating a full-day CGM chart with medical-grade glucose visualization and meal annotations](docs/images/claude-desktop-daily-graph.png)
+
 ---
 
 ## What This Does
@@ -141,12 +143,18 @@ Edit Claude Desktop's MCP config file:
 }
 ```
 
-Restart Claude Desktop. You should see **cgm-get-agent** appear in the tools panel (the hammer icon). The 11 tools will be listed there.
+Restart Claude Desktop. You should see **cgm-get-agent** in Developer Settings with a green "running" badge:
+
+![Claude Desktop Developer Settings showing cgm-get-agent MCP server in running state](docs/images/claude-desktop-mcp-servers.png)
+
+The 11 tools will be available in the tools panel (the hammer icon).
 
 > **Claude Code CLI (SSE, no bridge needed):**
 > ```bash
 > claude mcp add --transport sse cgm-get-agent http://localhost:8090/sse
 > ```
+>
+> ![Claude Code showing latest glucose readings in the terminal](docs/images/claude-code-latest-readings.png)
 
 > **stdio transport (experimental — not yet validated):** Runs a fresh server process per session with no HTTP layer. May cause JSON-RPC corruption errors.
 > ```bash

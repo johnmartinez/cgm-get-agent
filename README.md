@@ -2,6 +2,8 @@
 
 An MCP (Model Context Protocol) server that connects LLMs (Claude, ChatGPT) to a Dexcom G7 continuous glucose monitor. Ask Claude or ChatGPT about your glucose in natural language and get personalized health guidance on meals and exercise.
 
+![Claude Desktop generating a full-day CGM chart with medical-grade glucose visualization and meal annotations](docs/images/claude-desktop-daily-graph.png)
+
 ## What It Does
 
 - 11 MCP tools — eight Dexcom API v3 read endpoints plus local meal logging, exercise logging, and meal impact analysis
@@ -97,6 +99,8 @@ curl http://localhost:8090/health
 claude mcp add --transport sse cgm-get-agent http://localhost:8090/sse
 ```
 
+![Claude Code showing latest glucose readings in the terminal](docs/images/claude-code-latest-readings.png)
+
 **Option B — Claude Desktop (requires mcp-remote bridge):**
 
 Claude Desktop only supports stdio transport in its local config. Use `mcp-remote` (via npx) as a stdio-to-SSE bridge.
@@ -120,6 +124,10 @@ Add to your Claude Desktop MCP config (`~/Library/Application Support/Claude/cla
   }
 }
 ```
+
+Once connected, you should see **cgm-get-agent** in Developer Settings with a green "running" badge:
+
+![Claude Desktop Developer Settings showing cgm-get-agent MCP server in running state](docs/images/claude-desktop-mcp-servers.png)
 
 **Option C — stdio (experimental — not yet validated with Claude Desktop):**
 
